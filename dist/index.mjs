@@ -3298,12 +3298,12 @@ var require_ansi_styles = __commonJS({
   "node_modules/ansi-styles/index.js"(exports2, module2) {
     "use strict";
     var wrapAnsi16 = (fn2, offset) => (...args) => {
-      const code2 = fn2(...args);
-      return `\x1B[${code2 + offset}m`;
+      const code3 = fn2(...args);
+      return `\x1B[${code3 + offset}m`;
     };
     var wrapAnsi256 = (fn2, offset) => (...args) => {
-      const code2 = fn2(...args);
-      return `\x1B[${38 + offset};5;${code2}m`;
+      const code3 = fn2(...args);
+      return `\x1B[${38 + offset};5;${code3}m`;
     };
     var wrapAnsi16m = (fn2, offset) => (...args) => {
       const rgb = fn2(...args);
@@ -10687,10 +10687,10 @@ var require_source_node = __commonJS({
             lastGeneratedColumn = 0;
           } else {
             var nextLine = remainingLines[remainingLinesIndex] || "";
-            var code2 = nextLine.substr(0, mapping.generatedColumn - lastGeneratedColumn);
+            var code3 = nextLine.substr(0, mapping.generatedColumn - lastGeneratedColumn);
             remainingLines[remainingLinesIndex] = nextLine.substr(mapping.generatedColumn - lastGeneratedColumn);
             lastGeneratedColumn = mapping.generatedColumn;
-            addMappingWithCode(lastMapping, code2);
+            addMappingWithCode(lastMapping, code3);
             lastMapping = mapping;
             return;
           }
@@ -10723,16 +10723,16 @@ var require_source_node = __commonJS({
         }
       });
       return node;
-      function addMappingWithCode(mapping, code2) {
+      function addMappingWithCode(mapping, code3) {
         if (mapping === null || mapping.source === void 0) {
-          node.add(code2);
+          node.add(code3);
         } else {
           var source = aRelativePath ? util.join(aRelativePath, mapping.source) : mapping.source;
           node.add(new SourceNode(
             mapping.originalLine,
             mapping.originalColumn,
             source,
-            code2,
+            code3,
             mapping.name
           ));
         }
@@ -14903,17 +14903,17 @@ var require_decode = __commonJS({
       BinTrieFlags2[BinTrieFlags2["BRANCH_LENGTH"] = 16256] = "BRANCH_LENGTH";
       BinTrieFlags2[BinTrieFlags2["JUMP_TABLE"] = 127] = "JUMP_TABLE";
     })(BinTrieFlags = exports2.BinTrieFlags || (exports2.BinTrieFlags = {}));
-    function isNumber(code2) {
-      return code2 >= CharCodes.ZERO && code2 <= CharCodes.NINE;
+    function isNumber(code3) {
+      return code3 >= CharCodes.ZERO && code3 <= CharCodes.NINE;
     }
-    function isHexadecimalCharacter(code2) {
-      return code2 >= CharCodes.UPPER_A && code2 <= CharCodes.UPPER_F || code2 >= CharCodes.LOWER_A && code2 <= CharCodes.LOWER_F;
+    function isHexadecimalCharacter(code3) {
+      return code3 >= CharCodes.UPPER_A && code3 <= CharCodes.UPPER_F || code3 >= CharCodes.LOWER_A && code3 <= CharCodes.LOWER_F;
     }
-    function isAsciiAlphaNumeric(code2) {
-      return code2 >= CharCodes.UPPER_A && code2 <= CharCodes.UPPER_Z || code2 >= CharCodes.LOWER_A && code2 <= CharCodes.LOWER_Z || isNumber(code2);
+    function isAsciiAlphaNumeric(code3) {
+      return code3 >= CharCodes.UPPER_A && code3 <= CharCodes.UPPER_Z || code3 >= CharCodes.LOWER_A && code3 <= CharCodes.LOWER_Z || isNumber(code3);
     }
-    function isEntityInAttributeInvalidEnd(code2) {
-      return code2 === CharCodes.EQUALS || isAsciiAlphaNumeric(code2);
+    function isEntityInAttributeInvalidEnd(code3) {
+      return code3 === CharCodes.EQUALS || isAsciiAlphaNumeric(code3);
     }
     var EntityDecoderState;
     (function(EntityDecoderState2) {
@@ -21112,8 +21112,8 @@ var require_index_node_cjs = __commonJS({
                 const pattern = this.expr.slice(patternIndex, this.index);
                 let flags = "";
                 while (++this.index < this.expr.length) {
-                  const code2 = this.code;
-                  if (code2 >= 97 && code2 <= 122 || code2 >= 65 && code2 <= 90 || code2 >= 48 && code2 <= 57) {
+                  const code3 = this.code;
+                  if (code3 >= 97 && code3 <= 122 || code3 >= 65 && code3 <= 90 || code3 >= 48 && code3 <= 57) {
                     flags += this.char;
                   } else {
                     break;
@@ -21156,12 +21156,12 @@ var require_index_node_cjs = __commonJS({
         const updateNodeTypes = [jsep2.IDENTIFIER, jsep2.MEMBER_EXP];
         plugin.assignmentOperators.forEach((op) => jsep2.addBinaryOp(op, plugin.assignmentPrecedence, true));
         jsep2.hooks.add("gobble-token", function gobbleUpdatePrefix(env) {
-          const code2 = this.code;
-          if (plugin.updateOperators.some((c) => c === code2 && c === this.expr.charCodeAt(this.index + 1))) {
+          const code3 = this.code;
+          if (plugin.updateOperators.some((c) => c === code3 && c === this.expr.charCodeAt(this.index + 1))) {
             this.index += 2;
             env.node = {
               type: "UpdateExpression",
-              operator: code2 === PLUS_CODE ? "++" : "--",
+              operator: code3 === PLUS_CODE ? "++" : "--",
               argument: this.gobbleTokenProperty(this.gobbleIdentifier()),
               prefix: true
             };
@@ -21172,15 +21172,15 @@ var require_index_node_cjs = __commonJS({
         });
         jsep2.hooks.add("after-token", function gobbleUpdatePostfix(env) {
           if (env.node) {
-            const code2 = this.code;
-            if (plugin.updateOperators.some((c) => c === code2 && c === this.expr.charCodeAt(this.index + 1))) {
+            const code3 = this.code;
+            if (plugin.updateOperators.some((c) => c === code3 && c === this.expr.charCodeAt(this.index + 1))) {
               if (!updateNodeTypes.includes(env.node.type)) {
                 this.throwError(`Unexpected ${env.node.operator}`);
               }
               this.index += 2;
               env.node = {
                 type: "UpdateExpression",
-                operator: code2 === PLUS_CODE ? "++" : "--",
+                operator: code3 === PLUS_CODE ? "++" : "--",
                 argument: env.node,
                 prefix: false
               };
@@ -21745,19 +21745,19 @@ var require_index_node_cjs = __commonJS({
       }
       return ret;
     };
-    JSONPath.prototype._eval = function(code2, _v, _vname, path, parent, parentPropName) {
+    JSONPath.prototype._eval = function(code3, _v, _vname, path, parent, parentPropName) {
       this.currSandbox._$_parentProperty = parentPropName;
       this.currSandbox._$_parent = parent;
       this.currSandbox._$_property = _vname;
       this.currSandbox._$_root = this.json;
       this.currSandbox._$_v = _v;
-      const containsPath = code2.includes("@path");
+      const containsPath = code3.includes("@path");
       if (containsPath) {
         this.currSandbox._$_path = JSONPath.toPathString(path.concat([_vname]));
       }
-      const scriptCacheKey = this.currEval + "Script:" + code2;
+      const scriptCacheKey = this.currEval + "Script:" + code3;
       if (!JSONPath.cache[scriptCacheKey]) {
-        let script = code2.replaceAll("@parentProperty", "_$_parentProperty").replaceAll("@parent", "_$_parent").replaceAll("@property", "_$_property").replaceAll("@root", "_$_root").replaceAll(/@([.\s)[])/gu, "_$_v$1");
+        let script = code3.replaceAll("@parentProperty", "_$_parentProperty").replaceAll("@parent", "_$_parent").replaceAll("@property", "_$_property").replaceAll("@root", "_$_root").replaceAll(/@([.\s)[])/gu, "_$_v$1");
         if (containsPath) {
           script = script.replaceAll("@path", "_$_path");
         }
@@ -21782,7 +21782,7 @@ var require_index_node_cjs = __commonJS({
         if (this.ignoreEvalErrors) {
           return false;
         }
-        throw new Error("jsonPath: " + e.message + ": " + code2);
+        throw new Error("jsonPath: " + e.message + ": " + code3);
       }
     };
     JSONPath.cache = {};
@@ -22236,16 +22236,16 @@ var require_dom = __commonJS({
     var INVALID_MODIFICATION_ERR = ExceptionCode.INVALID_MODIFICATION_ERR = (ExceptionMessage[13] = "Invalid modification", 13);
     var NAMESPACE_ERR = ExceptionCode.NAMESPACE_ERR = (ExceptionMessage[14] = "Invalid namespace", 14);
     var INVALID_ACCESS_ERR = ExceptionCode.INVALID_ACCESS_ERR = (ExceptionMessage[15] = "Invalid access", 15);
-    function DOMException(code2, message) {
+    function DOMException(code3, message) {
       if (message instanceof Error) {
         var error = message;
       } else {
         error = this;
-        Error.call(this, ExceptionMessage[code2]);
-        this.message = ExceptionMessage[code2];
+        Error.call(this, ExceptionMessage[code3]);
+        this.message = ExceptionMessage[code3];
         if (Error.captureStackTrace) Error.captureStackTrace(this, DOMException);
       }
-      error.code = code2;
+      error.code = code3;
       if (message) this.message = this.message + ": " + message;
       return error;
     }
@@ -25962,13 +25962,13 @@ var require_sax = __commonJS({
       }
     };
     function parse2(source, defaultNSMapCopy, entityMap, domBuilder, errorHandler) {
-      function fixedFromCharCode(code2) {
-        if (code2 > 65535) {
-          code2 -= 65536;
-          var surrogate1 = 55296 + (code2 >> 10), surrogate2 = 56320 + (code2 & 1023);
+      function fixedFromCharCode(code3) {
+        if (code3 > 65535) {
+          code3 -= 65536;
+          var surrogate1 = 55296 + (code3 >> 10), surrogate2 = 56320 + (code3 & 1023);
           return String.fromCharCode(surrogate1, surrogate2);
         } else {
-          return String.fromCharCode(code2);
+          return String.fromCharCode(code3);
         }
       }
       function entityReplacer(a2) {
@@ -30133,9 +30133,9 @@ var require_xpath = __commonJS({
         return null;
       };
       var XPathException = (function() {
-        function getMessage(code2, exception) {
+        function getMessage(code3, exception) {
           var msg = exception ? ": " + exception.toString() : "";
-          switch (code2) {
+          switch (code3) {
             case XPathException2.INVALID_EXPRESSION_ERR:
               return "Invalid expression" + msg;
             case XPathException2.TYPE_ERR:
@@ -30143,9 +30143,9 @@ var require_xpath = __commonJS({
           }
           return null;
         }
-        function XPathException2(code2, error, message) {
-          var err = Error.call(this, getMessage(code2, error) || message);
-          err.code = code2;
+        function XPathException2(code3, error, message) {
+          var err = Error.call(this, getMessage(code3, error) || message);
+          err.code = code3;
           err.exception = error;
           return err;
         }
@@ -31494,9 +31494,9 @@ var require_binary = __commonJS({
       const max = data2.length;
       const map = BASE64_MAP;
       for (let idx = 0; idx < max; idx++) {
-        const code2 = map.indexOf(data2.charAt(idx));
-        if (code2 > 64) continue;
-        if (code2 < 0) return false;
+        const code3 = map.indexOf(data2.charAt(idx));
+        if (code3 > 64) continue;
+        if (code3 < 0) return false;
         bitlen += 6;
       }
       return bitlen % 8 === 0;
@@ -38147,8 +38147,8 @@ var require_stringifyString = __commonJS({
             case "u":
               {
                 str += json.slice(start, i);
-                const code2 = json.substr(i + 2, 4);
-                switch (code2) {
+                const code3 = json.substr(i + 2, 4);
+                switch (code3) {
                   case "0000":
                     str += "\\0";
                     break;
@@ -38174,8 +38174,8 @@ var require_stringifyString = __commonJS({
                     str += "\\P";
                     break;
                   default:
-                    if (code2.substr(0, 2) === "00")
-                      str += "\\x" + code2.substr(2);
+                    if (code3.substr(0, 2) === "00")
+                      str += "\\x" + code3.substr(2);
                     else
                       str += json.substr(i, 6);
                 }
@@ -40674,22 +40674,22 @@ var require_errors2 = __commonJS({
   "node_modules/yaml/dist/errors.js"(exports2) {
     "use strict";
     var YAMLError = class extends Error {
-      constructor(name2, pos, code2, message) {
+      constructor(name2, pos, code3, message) {
         super();
         this.name = name2;
-        this.code = code2;
+        this.code = code3;
         this.message = message;
         this.pos = pos;
       }
     };
     var YAMLParseError = class extends YAMLError {
-      constructor(pos, code2, message) {
-        super("YAMLParseError", pos, code2, message);
+      constructor(pos, code3, message) {
+        super("YAMLParseError", pos, code3, message);
       }
     };
     var YAMLWarning = class extends YAMLError {
-      constructor(pos, code2, message) {
-        super("YAMLWarning", pos, code2, message);
+      constructor(pos, code3, message) {
+        super("YAMLWarning", pos, code3, message);
       }
     };
     var prettifyError = (src, lc) => (error) => {
@@ -41598,7 +41598,7 @@ var require_resolve_flow_scalar = __commonJS({
       const { offset, type, source, end } = scalar;
       let _type2;
       let value;
-      const _onError = (rel, code2, msg) => onError(offset + rel, code2, msg);
+      const _onError = (rel, code3, msg) => onError(offset + rel, code3, msg);
       switch (type) {
         case "scalar":
           _type2 = Scalar.Scalar.PLAIN;
@@ -41795,9 +41795,9 @@ var require_resolve_flow_scalar = __commonJS({
     function parseCharCode(source, offset, length, onError) {
       const cc = source.substr(offset, length);
       const ok = cc.length === length && /^[0-9a-fA-F]+$/.test(cc);
-      const code2 = ok ? parseInt(cc, 16) : NaN;
+      const code3 = ok ? parseInt(cc, 16) : NaN;
       try {
-        return String.fromCodePoint(code2);
+        return String.fromCodePoint(code3);
       } catch {
         const raw = source.substr(offset - 2, length + 2);
         onError(offset - 2, "BAD_DQ_ESCAPE", `Invalid escape sequence ${raw}`);
@@ -42119,12 +42119,12 @@ var require_composer = __commonJS({
         this.prelude = [];
         this.errors = [];
         this.warnings = [];
-        this.onError = (source, code2, message, warning2) => {
+        this.onError = (source, code3, message, warning2) => {
           const pos = getErrorPos(source);
           if (warning2)
-            this.warnings.push(new errors.YAMLWarning(pos, code2, message));
+            this.warnings.push(new errors.YAMLWarning(pos, code3, message));
           else
-            this.errors.push(new errors.YAMLParseError(pos, code2, message));
+            this.errors.push(new errors.YAMLParseError(pos, code3, message));
         };
         this.directives = new directives.Directives({ version: options.version || "1.2" });
         this.options = options;
@@ -42286,12 +42286,12 @@ var require_cst_scalar = __commonJS({
     var stringifyString = require_stringifyString();
     function resolveAsScalar(token, strict = true, onError) {
       if (token) {
-        const _onError = (pos, code2, message) => {
+        const _onError = (pos, code3, message) => {
           const offset = typeof pos === "number" ? pos : Array.isArray(pos) ? pos[0] : pos.offset;
           if (onError)
-            onError(offset, code2, message);
+            onError(offset, code3, message);
           else
-            throw new errors.YAMLParseError([offset, offset + 1], code2, message);
+            throw new errors.YAMLParseError([offset, offset + 1], code3, message);
         };
         switch (token.type) {
           case "scalar":
@@ -62607,6 +62607,13 @@ function directory(value) {
   return trimmed === "" || trimmed === "." ? "." : trimmed;
 }
 var UNSHARED = ["component", "tag-separator"];
+function code2(value) {
+  const flat = value.replace(/\s+/g, " ").trim();
+  const longest = Math.max(0, ...[...flat.matchAll(/`+/g)].map((run) => run[0].length));
+  const fence = "`".repeat(longest + 1);
+  const pad = flat.startsWith("`") || flat.endsWith("`") ? " " : "";
+  return `${fence}${pad}${flat}${pad}${fence}`;
+}
 function notes(caller, given) {
   const mode = modeNote(caller, given);
   if (mode) return [mode];
@@ -62618,9 +62625,9 @@ function modeNote(caller, given) {
   const plainHere = given.plain !== void 0;
   if (plainThere === plainHere) return void 0;
   if (plainThere) {
-    return `- \`${caller.file}\` passes release-please \`release-type: ${theirs}\`, which is the switch into its non-manifest mode: the release will not read \`${given.configFile}\`, and this projection did. Pass this action the same \`release-type\` \u2014 and the rest of that step's \`with:\` block \u2014 to model the release that will run.`;
+    return `- ${code2(caller.file)} passes release-please ${code2(`release-type: ${theirs}`)}, which is the switch into its non-manifest mode: the release will not read ${code2(given.configFile)}, and this projection did. Pass this action the same \`release-type\` \u2014 and the rest of that step's \`with:\` block \u2014 to model the release that will run.`;
   }
-  return `- \`release-type\` is set here, so this projection is release-please's non-manifest mode \u2014 but \`${caller.file}\` calls release-please-action without one, so the release reads \`${given.configFile}\` instead. Clearing \`release-type\` here reads the same files it will.`;
+  return `- \`release-type\` is set here, so this projection is release-please's non-manifest mode \u2014 but ${code2(caller.file)} calls release-please-action without one, so the release reads ${code2(given.configFile)} instead. Clearing \`release-type\` here reads the same files it will.`;
 }
 function plainNotes(caller, plain) {
   const ours = new Map([
@@ -62641,7 +62648,7 @@ function plainNotes(caller, plain) {
     const value = name2 === "component" ? plain.component : plain.tagSeparator;
     if (!value) continue;
     found.push(
-      `- \`${name2}\` is set here, and release-please-action has no input for it: \`${caller.file}\` cannot pass one, so the release takes what release-please derives. The projection models \`${value}\` instead. Leave it unset unless something other than that workflow cuts this repository's releases.`
+      `- \`${name2}\` is set here, and release-please-action has no input for it: ${code2(caller.file)} cannot pass one, so the release takes what release-please derives. The projection models ${code2(value)} instead. Leave it unset unless something other than that workflow cuts this repository's releases.`
     );
   }
   return found;
@@ -62668,13 +62675,13 @@ function drift(caller, setting, mine) {
   const theirs = raw === void 0 || raw === "" ? setting.unset : read(raw);
   const ours = mine === void 0 || mine === "" ? setting.unset : read(mine);
   if (theirs === ours) return void 0;
-  return `- \`${caller.file}\` passes release-please ${shown(raw, name2, setting)}, and this action was given ${shown(mine, setting.ours, setting)}. The projection models the second; the release will use the first.`;
+  return `- ${code2(caller.file)} passes release-please ${shown(raw, name2, setting)}, and this action was given ${shown(mine, setting.ours, setting)}. The projection models the second; the release will use the first.`;
 }
 function shown(value, name2, setting) {
   if (value === void 0 || value === "") {
     return setting.unset === "" ? `no \`${name2}\`` : `no \`${name2}\`, so \`${setting.unset}\``;
   }
-  return `\`${name2}: ${value}\``;
+  return code2(`${name2}: ${value}`);
 }
 
 // src/run.ts

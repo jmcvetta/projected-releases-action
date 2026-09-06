@@ -243,6 +243,67 @@ describe("comparing this action's inputs with the release workflow's", () => {
   });
 });
 
+describe("quoting a value the note did not write", () => {
+  // The workflow read is the head branch's copy, so on a pull request from a
+  // fork every value in it was written by whoever opened that pull request.
+  // A note that let one out of its code span would have the bot posting the
+  // author's markdown under its own name, on the comment that exists to be
+  // believed.
+  it("fences a value that is full of backticks", () => {
+    const evil = "``x`` [payout portal](https://example.invalid)";
+    const result = compare({
+      "release.yml": step({
+        "release-type": "node",
+        "versioning-strategy": JSON.stringify(evil),
+      }),
+    });
+    // Three backticks, because the longest run inside the value is two.
+    expect(result.notes[0]).toContain("```versioning-strategy: " + evil + "```");
+  });
+
+  it("pads a value that ends in a backtick", () => {
+    const result = compare({
+      "release.yml": step({
+        "release-type": "node",
+        "versioning-strategy": JSON.stringify("always-bump-minor`"),
+      }),
+    });
+    // Padded on both sides: CommonMark strips the pair or neither.
+    expect(result.notes[0]).toContain("`` versioning-strategy: always-bump-minor` ``");
+  });
+
+  it("flattens a value written over several lines", () => {
+    // A blank line ends the paragraph, and no length of fence survives that.
+    const result = compare({
+      "release.yml": `
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        with:
+          release-type: node
+          versioning-strategy: |
+            always-bump-minor
+
+            ## Not a heading
+`,
+    });
+    expect(result.notes[0]).toContain(
+      "`versioning-strategy: always-bump-minor ## Not a heading`",
+    );
+    expect(result.notes[0]).not.toContain("\n");
+  });
+
+  it("fences the workflow's own name", () => {
+    // The filename is as much the fork's to choose as the values in it.
+    const result = compare({
+      "re`lease.yml": step({ "release-type": "python" }),
+    });
+    expect(result.notes[0]).toContain("``" + WORKFLOW_DIR + "/re`lease.yml``");
+  });
+});
+
 describe("what the comparison declines to do", () => {
   // Each of these is a repository doing nothing wrong, or one this cannot
   // read. `decided` false leaves buildComment's checkout-only note in place,

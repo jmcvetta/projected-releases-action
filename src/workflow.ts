@@ -305,6 +305,29 @@ function directory(value: string): string {
  * input for at all, so a repository it releases cannot be passing them. */
 const UNSHARED = ["component", "tag-separator"] as const;
 
+/**
+ * code renders one value as a markdown code span, whatever is in it.
+ *
+ * The values a note quotes come out of a workflow file in the head checkout,
+ * which on a pull request from a fork is written by whoever opened it. A
+ * backtick in one of them closes the span the note put it in and the rest of
+ * the value is markdown -- a link the bot appears to be vouching for, on the
+ * comment whose whole purpose is to be trusted. So the span is fenced by a
+ * run of backticks longer than any run inside the value, and padded with a
+ * space when the value starts or ends with one, which is what CommonMark
+ * provides for exactly this.
+ *
+ * Whitespace is flattened first, because no fence survives a blank line: it
+ * ends the paragraph and everything after it is loose markdown again.
+ */
+function code(value: string): string {
+  const flat = value.replace(/\s+/g, " ").trim();
+  const longest = Math.max(0, ...[...flat.matchAll(/`+/g)].map((run) => run[0].length));
+  const fence = "`".repeat(longest + 1);
+  const pad = flat.startsWith("`") || flat.endsWith("`") ? " " : "";
+  return `${fence}${pad}${flat}${pad}${fence}`;
+}
+
 /** notes lists everything the caller and this action disagree about. */
 function notes(caller: Caller, given: Given): string[] {
   const mode = modeNote(caller, given);
@@ -333,17 +356,18 @@ function modeNote(caller: Caller, given: Given): string | undefined {
 
   if (plainThere) {
     return (
-      `- \`${caller.file}\` passes release-please \`release-type: ${theirs}\`, which is` +
+      `- ${code(caller.file)} passes release-please` +
+      ` ${code(`release-type: ${theirs}`)}, which is` +
       " the switch into its non-manifest mode: the release will not read" +
-      ` \`${given.configFile}\`, and this projection did. Pass this action the` +
+      ` ${code(given.configFile)}, and this projection did. Pass this action the` +
       " same `release-type` — and the rest of that step's `with:` block — to" +
       " model the release that will run."
     );
   }
   return (
     "- `release-type` is set here, so this projection is release-please's" +
-    ` non-manifest mode — but \`${caller.file}\` calls release-please-action` +
-    ` without one, so the release reads \`${given.configFile}\` instead.` +
+    ` non-manifest mode — but ${code(caller.file)} calls release-please-action` +
+    ` without one, so the release reads ${code(given.configFile)} instead.` +
     " Clearing `release-type` here reads the same files it will."
   );
 }
@@ -375,9 +399,9 @@ function plainNotes(caller: Caller, plain: PlainConfig): string[] {
     if (!value) continue;
     found.push(
       `- \`${name}\` is set here, and release-please-action has no input for` +
-        ` it: \`${caller.file}\` cannot pass one, so the release takes what` +
+        ` it: ${code(caller.file)} cannot pass one, so the release takes what` +
         " release-please derives. The projection models" +
-        ` \`${value}\` instead. Leave it unset unless something other than` +
+        ` ${code(value)} instead. Leave it unset unless something other than` +
         " that workflow cuts this repository's releases.",
     );
   }
@@ -427,7 +451,7 @@ function drift(
   if (theirs === ours) return undefined;
 
   return (
-    `- \`${caller.file}\` passes release-please ${shown(raw, name, setting)},` +
+    `- ${code(caller.file)} passes release-please ${shown(raw, name, setting)},` +
     ` and this action was given ${shown(mine, setting.ours, setting)}. The` +
     " projection models the second; the release will use the first."
   );
@@ -450,5 +474,5 @@ function shown(
       ? `no \`${name}\``
       : `no \`${name}\`, so \`${setting.unset}\``;
   }
-  return `\`${name}: ${value}\``;
+  return code(`${name}: ${value}`);
 }
