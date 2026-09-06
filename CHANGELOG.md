@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.4.0...v0.5.0) (2026-09-06)
+
+
+### Features
+
+* check the plain-mode inputs against the release workflow ([#61](https://github.com/jmcvetta/release-please-projected-releases-action/issues/61)) ([3aae640](https://github.com/jmcvetta/release-please-projected-releases-action/commit/3aae640e5fa6358b1b0ec1de2da8406759634715))
+
 ## [0.4.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.3.1...v0.4.0) (2026-09-05)
 
 
