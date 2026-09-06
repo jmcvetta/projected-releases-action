@@ -22,7 +22,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { action } from "./action.js";
+import { action, branchHead } from "./action.js";
 import { DEFAULT_HEADER, markerFor } from "./comment.js";
 import { startFakeGitHub } from "./fake-github-server.fixture.js";
 import type { FakeGitHub, FakeRepo } from "./fake-github-server.fixture.js";
@@ -353,21 +353,113 @@ describe("action, when a read it can do without fails", () => {
     expect(server.requests).not.toContain("GET /repos/acme/widgets/pulls");
   });
 
-  it("warns about a merge method the projection does not model", async () => {
-    // Declared rather than read, so the settings endpoint is not consulted at
-    // all. The advisory reaches the comment and the run's annotations both,
-    // because a projection that describes a merge this repository will not
-    // perform is worse than no projection.
+  it("warns when it cannot read the commits a merge would write", async () => {
+    // With no checkout to read and nothing for the API to list, the
+    // projection falls back to the squash answer -- and says so, because a
+    // projection that describes a merge this repository will not perform is
+    // worse than no projection.
     const server = await start();
     const env = environment(server, { "INPUT_MERGE-METHOD": "merge" });
     await action(env);
-    expect(server.requests).not.toContain("GET /repos/acme/widgets");
     expect(annotations()).toContain(
       "::warning::This repository is configured as `merge-method: merge`",
     );
     expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain(
       "does not describe this merge",
     );
+  });
+
+  it("projects a rebase from the branch's commits, read through the API", async () => {
+    // The title is a `feat:` and would release 1.0.0 under a squash-merge.
+    // Under a rebase it is not an input at all: the branch's one `fix:` is,
+    // and the version that comes out is release-please's answer to that.
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "a".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, {
+      "INPUT_MERGE-METHOD": "rebase",
+      // A title a squash-merging repository's gate would reject outright.
+      INPUT_TITLE: "not a conventional commit at all",
+    });
+    await action(env);
+
+    const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
+    expect(body).toContain("models the branch's own commits");
+    expect(body).not.toContain("malformed PR title");
+    expect(outputs(env)["malformed-title"]).toBe("false");
+    expect(server.requests).toContain("GET /repos/acme/widgets/pulls/7/commits");
+    expect(server.requests).toContain(`GET /repos/acme/widgets/commits/${"a".repeat(40)}`);
+    expect(annotations()).toContain("read the branch's 1 commit from the API");
+  });
+
+  it("projects a merge commit from the branch's commits and the title", async () => {
+    // GitHub's default merge commit carries the pull request title in its
+    // body, so a merge-commit repository releases from the title as well as
+    // from the branch. The `feat:` title is what makes this a minor release
+    // rather than the patch the branch alone would cut.
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "b".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, { "INPUT_MERGE-METHOD": "merge" });
+    await action(env);
+
+    const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
+    expect(body).toContain(", plus a merge commit above them");
+    expect(body).not.toContain("does not describe this merge");
+    expect(body).toContain("a crash");
+    expect(body).toContain("a thing");
+  });
+
+  it("reads the branch's commits only for a merge it is modelling", async () => {
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "c".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    await action(environment(server));
+    expect(server.requests).not.toContain("GET /repos/acme/widgets/pulls/7/commits");
+  });
+
+  it("models the method a repository that cannot squash does allow", async () => {
+    const server = await start({
+      merge: { allow_squash_merge: false, allow_merge_commit: true },
+      prCommits: {
+        7: [{ sha: "d".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, { "INPUT_MERGE-METHOD": "auto" });
+    await action(env);
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain(
+      "does not allow squash-merge",
+    );
+  });
+
+  it("takes squash and rebase at their word, without reading the settings", async () => {
+    const server = await start();
+    await action(environment(server, { "INPUT_MERGE-METHOD": "rebase" }));
+    expect(server.requests).not.toContain("GET /repos/acme/widgets");
+  });
+
+  it("reads the merge commit's own format even for a declared merge", async () => {
+    // The settings decide whether the merge commit carries the title, which
+    // decides whether the title releases. `BLANK` here, so the `feat:` title
+    // is not an input and the branch's `fix:` is the whole answer.
+    const server = await start({
+      merge: { merge_commit_message: "BLANK" },
+      prCommits: {
+        7: [{ sha: "e".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, { "INPUT_MERGE-METHOD": "merge" });
+    await action(env);
+    expect(server.requests).toContain("GET /repos/acme/widgets");
+    const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
+    expect(body).toContain("a crash");
+    expect(body).not.toContain("a thing");
   });
 
   it("compares its inputs with the release workflow, in the comment and the log", async () => {
@@ -397,11 +489,97 @@ describe("action, when a read it can do without fails", () => {
     expect(annotations()).toContain("::warning::`.github/workflows/release.yml`");
   });
 
+  it("asks the API when the checkout reads the range as empty", async () => {
+    // `HEAD..HEAD` is no commits, which is not a reading of the merge: it is
+    // a base and a head that do not describe it. Taking the empty array for
+    // an answer skipped the fallback and then blamed the checkout, which had
+    // read fine.
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "f".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, {
+      "INPUT_MERGE-METHOD": "rebase",
+      "INPUT_CHANGED-FILES": "auto",
+      "INPUT_DIFF-BASE": "HEAD",
+      INPUT_HEAD: "HEAD",
+    });
+    await action(env);
+    expect(server.requests).toContain("GET /repos/acme/widgets/pulls/7/commits");
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).not.toContain(
+      "does not describe this merge",
+    );
+  });
+
+  it("stops paging a branch it has already decided is too long", async () => {
+    // The cap is what keeps a long branch from costing one request per commit
+    // for its files. Reaching it mid-listing is the answer, so the pages after
+    // it are requests spent on a projection already given up on.
+    const many = Array.from({ length: 101 }, (_, i) => ({
+      sha: String(i).padStart(40, "0"),
+      message: "fix: a crash",
+      files: ["src/b.ts"],
+    }));
+    const server = await start({ prCommits: { 7: many } });
+    const env = environment(server, { "INPUT_MERGE-METHOD": "rebase" });
+    await action(env);
+
+    const listings = server.requests.filter(
+      (r) => r === "GET /repos/acme/widgets/pulls/7/commits",
+    );
+    expect(listings).toHaveLength(1);
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain(
+      "does not describe this merge",
+    );
+  });
+
+  it("warns that a `Release-As:` in the description is not an input here", async () => {
+    // The silence this closes: under a rebase the description is not a commit
+    // message at all, so a note written there asks for a version nothing will
+    // ever parse -- and reading notes only from the branch's commits meant
+    // nothing anywhere said so.
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "9".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, {
+      "INPUT_MERGE-METHOD": "rebase",
+      INPUT_BODY: "Ship it.\n\nRelease-As: 9.9.9\n",
+    });
+    await action(env);
+
+    const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
+    expect(body).toContain("`Release-As: 9.9.9` was **ignored**");
+    expect(body).toContain("Put the note in a commit on the branch");
+    expect(body).not.toContain("Check the merge box");
+  });
+
   it("refuses a merge method that is not one", async () => {
     const server = await start();
     await expect(
       action(environment(server, { "INPUT_MERGE-METHOD": "fast-forward" })),
     ).rejects.toThrow(/must be one of/);
+  });
+});
+
+describe("branchHead", () => {
+  // Which ref the branch's commits are read from, which is not the ref the
+  // changed-file diff runs against. See the function's own comment, and
+  // git.test.ts for what reading HEAD on a pull_request event produces.
+  const sha = "c".repeat(40);
+
+  it("prefers the event's head sha where the checkout holds it", () => {
+    expect(branchHead({}, sha, () => true)).toBe(sha);
+  });
+
+  it("falls back to HEAD where it does not", () => {
+    expect(branchHead({}, sha, () => false)).toBe("HEAD");
+  });
+
+  it("obeys an explicit head, which a caller named for a reason", () => {
+    expect(branchHead({ INPUT_HEAD: "topic" }, sha, () => true)).toBe("topic");
   });
 });
 

@@ -1,20 +1,25 @@
 /**
  * pr-view presents a repository to release-please as it will look *after*
- * this pull request is squash-merged.
+ * this pull request is merged.
  *
- * release-please computes from commits already on the target branch, and
- * under squash-merge the only Conventional Commit a pull request contributes
- * is its title, which is not a commit until the merge happens. That is why
+ * release-please computes from commits already on the target branch, and the
+ * commits a merge adds are not commits until the merge happens. That is why
  * the answer cannot be had by running release-please as it stands, and why
  * the implementation this replaced mirrored release-please's rules in
  * another language instead.
  *
  * Every commit `Manifest.buildPullRequests()` reads arrives through one call,
  * `github.mergeCommitIterator(targetBranch, options)` (manifest.ts, "Collecting
- * commits since all latest releases"). Yielding a synthetic commit built from
- * the pull request ahead of the real ones, and otherwise delegating, makes
- * release-please compute the post-merge answer itself: exact versions, exact
- * changelog, and its own decision about what does not release at all.
+ * commits since all latest releases"). Yielding synthetic commits ahead of the
+ * real ones, and otherwise delegating, makes release-please compute the
+ * post-merge answer itself: exact versions, exact changelog, and its own
+ * decision about what does not release at all.
+ *
+ * How many synthetic commits there are is the whole difference between the
+ * merge methods. A squash-merge writes one, built from the title and body; a
+ * merge or a rebase puts the branch's own commits on the target branch
+ * individually and release-please parses each of them. The construction is
+ * the same either way — the caller says which commits merging writes.
  *
  * `GitHub` is exported from release-please's public index; `CommitSplit`,
  * `DefaultVersioningStrategy` and `DefaultChangelogNotes` are not. So this is
@@ -43,6 +48,31 @@ export interface SyntheticCommit {
   headBranch: string;
   /** baseBranch is the branch the pull request targets. */
   baseBranch: string;
+}
+
+/**
+ * BranchCommit is one commit merging would put on the target branch as
+ * itself, which is what a merge-commit or rebase merge does with every commit
+ * on the branch.
+ *
+ * The file list is the commit's own, not the pull request's, and that is the
+ * whole reason this shape exists rather than reusing the pull request's one
+ * list. release-please backfills a commit's files per commit in exactly this
+ * case: `mergeCommitsGraphQL` only serves the pull request's file list to a
+ * commit that is the *sole* commit its merge commit accounts for, which is a
+ * squash-merge (measured, github.ts). A merge or a rebase leaves several
+ * commits pointing at one merge commit, so each of them is backfilled from
+ * the REST API with its own diff — and a version bump is attributed to the
+ * package that commit touched, not to every package the branch touched.
+ */
+export interface BranchCommit {
+  /** sha is the commit, so a changelog line can name it. */
+  sha: string;
+  /** message is the whole commit message, subject and body. */
+  message: string;
+  /** files are the paths this commit changes, relative to the repository
+   * root. Its own, not the pull request's. */
+  files: string[];
 }
 
 /**
@@ -106,9 +136,13 @@ export interface HeadOverrides {
 export type ReadHeadFile = (path: string) => string | undefined;
 
 /**
- * viewWithPullRequest wraps a real `GitHub` so release-please sees the
- * squash-merge of this pull request as the newest commit on the target
- * branch.
+ * viewWithPullRequest wraps a real `GitHub` so release-please sees the merge
+ * of this pull request as the newest commits on the target branch.
+ *
+ * `branch` is what merging writes when it is not one squashed commit: the
+ * branch's own commits, newest first, as `mergeCommitIterator` orders them.
+ * Given none, the squash-merge of `commit` is the single commit yielded,
+ * which is the ordinary case.
  *
  * The wrap is an object whose prototype is the live instance, not a Proxy:
  * inherited methods keep working because every property they touch resolves
@@ -120,6 +154,7 @@ export function viewWithPullRequest(
   commit: SyntheticCommit,
   overrides: HeadOverrides = {},
   readHeadFile?: ReadHeadFile,
+  branch?: readonly BranchCommit[],
 ): PullRequestView {
   if (typeof base.mergeCommitIterator !== "function") {
     throw new SeamError(
@@ -147,12 +182,28 @@ export function viewWithPullRequest(
     ? `${commit.title}\n\n${commit.body.trim()}`
     : commit.title;
 
-  const synthetic: Commit = {
-    sha: commit.headSha,
-    message,
-    files: commit.files,
-    pullRequest,
-  };
+  // Every synthetic commit carries the pull request, because GitHub
+  // associates all of them with it: `associatedPullRequests` answers with
+  // this pull request for a squashed commit, for a merge commit, and for
+  // every commit a rebase replays. What that buys release-please is the
+  // changelog's `(#7)` link — and `BEGIN_COMMIT_OVERRIDE` in the body, which
+  // therefore replaces *each* of these messages rather than one of them.
+  const synthetic: Commit[] =
+    branch && branch.length > 0
+      ? branch.map((c) => ({
+          sha: c.sha,
+          message: c.message,
+          files: c.files,
+          pullRequest,
+        }))
+      : [
+          {
+            sha: commit.headSha,
+            message,
+            files: commit.files,
+            pullRequest,
+          },
+        ];
 
   let consulted = false;
   const view: GitHub = Object.create(base);
@@ -162,7 +213,7 @@ export function viewWithPullRequest(
     options?: Parameters<GitHub["mergeCommitIterator"]>[1],
   ): AsyncGenerator<Commit> {
     consulted = true;
-    yield synthetic;
+    for (const one of synthetic) yield one;
     yield* base.mergeCommitIterator(targetBranch, options);
   } as GitHub["mergeCommitIterator"];
 

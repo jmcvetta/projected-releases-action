@@ -59,6 +59,57 @@ describe("the synthetic commit", () => {
   });
 });
 
+describe("the branch's own commits, which a merge or a rebase writes", () => {
+  const BRANCH = [
+    { sha: "newer", message: "fix: second", files: ["ui/b.ts"] },
+    { sha: "older", message: "feat: first", files: ["api/a.ts"] },
+  ];
+
+  it("replaces the squashed commit, in front of the target branch's own", async () => {
+    const behind = { sha: "old", message: "fix: earlier", files: ["api/y.ts"] };
+    const view = viewWithPullRequest(
+      base([behind]),
+      COMMIT,
+      {},
+      undefined,
+      BRANCH,
+    );
+    expect((await drain(view.github)).map((c) => c.sha)).toEqual([
+      "newer",
+      "older",
+      "old",
+    ]);
+  });
+
+  it("keeps each commit's own message and own files", async () => {
+    // Its own files, not the pull request's: that is what attributes a bump
+    // to the package the commit touched rather than to all of them.
+    const view = viewWithPullRequest(base(), COMMIT, {}, undefined, BRANCH);
+    const commits = await drain(view.github);
+    expect(commits.map((c) => [c.message, c.files])).toEqual([
+      ["fix: second", ["ui/b.ts"]],
+      ["feat: first", ["api/a.ts"]],
+    ]);
+  });
+
+  it("carries the pull request on every one of them, as GitHub does", async () => {
+    // `associatedPullRequests` answers with this pull request for every
+    // commit a merge or a rebase lands, which is what links a changelog line
+    // to it -- and what makes BEGIN_COMMIT_OVERRIDE apply to each of them.
+    const view = viewWithPullRequest(base(), COMMIT, {}, undefined, BRANCH);
+    for (const commit of await drain(view.github)) {
+      expect(commit.pullRequest?.number).toBe(12);
+    }
+  });
+
+  it("falls back to the squashed commit when the branch is empty", async () => {
+    const view = viewWithPullRequest(base(), COMMIT, {}, undefined, []);
+    expect((await drain(view.github)).map((c) => c.sha)).toEqual([
+      "abcdef1234567890",
+    ]);
+  });
+});
+
 describe("the head overrides", () => {
   it("serves the pull request's own config rather than the base branch's", async () => {
     const view = viewWithPullRequest(base(), COMMIT, {

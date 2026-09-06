@@ -23,6 +23,7 @@ import {
   DEFAULT_MANIFEST_FILE,
 } from "./project.js";
 import type { PlainConfig, Projection } from "./project.js";
+import type { BranchCommit } from "./pr-view.js";
 import { render } from "./render.js";
 import { compareReleaseWorkflow } from "./workflow.js";
 
@@ -61,6 +62,14 @@ export interface RunOptions {
   headBranch: string;
   /** files are the paths the pull request changes. */
   files: string[];
+  /**
+   * branch are the commits merging puts on the target branch individually,
+   * newest first, for a repository that merges or rebases rather than
+   * squashes. Given none, the squash-merge of the title and body is what is
+   * modelled -- which is the ordinary case and this action's whole original
+   * subject.
+   */
+  branch?: readonly BranchCommit[];
   /** repoRoot is the checkout the config and manifest are read from. */
   repoRoot?: string;
   /**
@@ -320,7 +329,15 @@ export async function buildComment(options: RunOptions): Promise<Outcome> {
       : {}),
   });
 
-  const malformed = isMalformed(options.title, types);
+  // The title is only the input under squash-merge. Where the branch's own
+  // commits are what release-please will parse, a title that is not a
+  // Conventional Commit describes nothing that will ever be a commit message,
+  // so withholding the projection over it would withhold the answer to the
+  // question the repository actually asks.
+  const commitMessages = options.branch?.length
+    ? options.branch.map((commit) => commit.message)
+    : undefined;
+  const malformed = commitMessages ? false : isMalformed(options.title, types);
 
   const projection = malformed
     ? EMPTY
@@ -334,6 +351,7 @@ export async function buildComment(options: RunOptions): Promise<Outcome> {
     title: options.title,
     malformed,
     types,
+    ...(commitMessages ? { commitMessages } : {}),
     ...(options.releasePrs ? { releasePrs: options.releasePrs } : {}),
     ...(options.headSha ? { headSha: options.headSha } : {}),
     ...(options.runUrl ? { runUrl: options.runUrl } : {}),
@@ -393,6 +411,7 @@ async function projectPullRequest(
       return existsSync(full) ? readFileSync(full, "utf8") : undefined;
     },
     ...(options.plain ? { plain: options.plain } : {}),
+    ...(options.branch?.length ? { branch: options.branch } : {}),
     commit: {
       title: options.title,
       body: options.body,

@@ -4,10 +4,9 @@
 [![Release](https://img.shields.io/github/v/release/jmcvetta/release-please-projected-releases-action)](https://github.com/jmcvetta/release-please-projected-releases-action/releases)
 [![License](https://img.shields.io/github/license/jmcvetta/release-please-projected-releases-action)](LICENSE)
 
-A GitHub Action for repositories that squash-merge: it comments on a pull
-request with the release-please tags merging it will cut — or says plainly
-that nothing is released. The numbers come from a bundled release-please, not
-a reimplementation of its rules.
+A GitHub Action that comments on a pull request with the release-please tags
+merging it will cut — or says plainly that nothing is released. The numbers
+come from a bundled release-please, not a reimplementation of its rules.
 
 ---
 
@@ -55,9 +54,9 @@ the affected version as unreliable rather than presenting it as the answer.
 ## Does it fit your repository?
 
 - **release-please**, manifest mode or plain mode (`release-type:`).
-- **Squash-merge**, which is what makes the title the commit. Merge commits
-  and rebase are planned —
-  [#50](https://github.com/jmcvetta/release-please-projected-releases-action/issues/50).
+- **Any merge method.** Squash-merge is the default and the one that makes
+  the pull request title the commit. Merge commits and rebase are projected
+  from the branch's own commits instead — see below.
 
 ## Quick start
 
@@ -81,12 +80,64 @@ jobs:
       - uses: jmcvetta/release-please-projected-releases-action@v0
 ```
 
-Keep `edited` in the trigger list: the projection comes from the title, so a
-title fixed after review has to re-render. Keep `fetch-depth: 0` too: the
-checkout answers what each commit changed, which the API otherwise answers one
-request per commit. `@v0` tracks the latest `0.x`, and
-[`examples/projected-releases.yml`](examples/projected-releases.yml) adds a
-`concurrency` group and skips release-please's own release pull requests.
+Keep `edited` in the trigger list: under squash-merge the projection comes
+from the title, so a title fixed after review has to re-render. Keep
+`fetch-depth: 0` too: the checkout answers what each commit changed, which the
+API otherwise answers one request per commit. `@v0` tracks the latest `0.x`,
+and [`examples/projected-releases.yml`](examples/projected-releases.yml) adds
+a `concurrency` group and skips release-please's own release pull requests.
+
+## Merge commits and rebase
+
+A squash-merge writes one commit and its subject is the pull request title, so
+the title is what release-please parses. A merge commit or a rebase puts the
+branch's own commits on the target branch individually, and release-please
+parses those. The projection follows the repository:
+
+| the merge | what is projected |
+| --- | --- |
+| squash | the title and description, as one commit |
+| rebase | the branch's commits, each with its own files |
+| merge | the same, plus the merge commit GitHub writes above them |
+
+By default the repository's settings decide, and they resolve to squash
+wherever squash is allowed — which is nearly everywhere, and is the button
+most people press. A repository that really merges the other way should say
+so:
+
+```yaml
+      - uses: jmcvetta/release-please-projected-releases-action@v0
+        with:
+          merge-method: merge   # or rebase, or squash
+```
+
+Two things change when the branch's commits are the input. The title's type
+no longer decides anything, so a title that is not a Conventional Commit is
+not a problem and the `malformed-title` output is always `false`. And the
+merge commit is not a formality: GitHub's default `merge_commit_message` is
+`PR_TITLE`, which puts the title in the merge commit's body, where
+release-please parses it as a commit of its own — so a merge-commit repository
+releases from the title *and* from the branch. The action reads
+`merge_commit_title` and `merge_commit_message` from the repository so the
+projection matches whichever way they are set.
+
+A `Release-As:` note is worth one more sentence. Under a squash-merge the
+description becomes the commit body, so a note there reaches release-please.
+Under a rebase it does not become anything, and under a merge commit it does
+only where `merge_commit_message` is set to carry it — so a note in the
+description usually asks for a version nothing will parse. The comment says so
+when it happens; the place that always works is a git trailer at the end of a
+commit on the branch.
+
+This needs the branch's commits, with the files each one changes.
+`fetch-depth: 0` supplies them from the checkout in one `git log`, read from
+the pull request's head commit rather than from `HEAD` — on a `pull_request`
+event `actions/checkout` leaves `HEAD` at GitHub's ephemeral merge commit,
+which is not one merging writes. Without a deep checkout the action falls back
+to the API, which has no per-commit files endpoint and so costs one request
+per commit; past fifty, or past five hundred commits in the checkout, it
+declines, and the comment says the merge could not be modelled rather than
+showing the squash answer as though it were one.
 
 ## Configuration
 

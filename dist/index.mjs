@@ -61419,8 +61419,59 @@ var Client = class {
       allowSquash: raw["allow_squash_merge"] !== false,
       allowMerge: raw["allow_merge_commit"] !== false,
       allowRebase: raw["allow_rebase_merge"] !== false,
-      squashTitle: String(raw["squash_merge_commit_title"] ?? "PR_TITLE")
+      squashTitle: String(raw["squash_merge_commit_title"] ?? "PR_TITLE"),
+      // GitHub's own defaults for a repository that has never been told
+      // otherwise, which the REST response omits rather than spells.
+      mergeTitle: String(raw["merge_commit_title"] ?? "MERGE_MESSAGE"),
+      mergeMessage: String(raw["merge_commit_message"] ?? "PR_TITLE")
     };
+  }
+  /**
+   * pullRequestCommits lists the commits on the pull request's branch, newest
+   * first, each with the files it changes.
+   *
+   * The fallback for a checkout `branchCommits` cannot read, and it is
+   * expensive in a way the rest of this file is not: GitHub has no per-commit
+   * files endpoint for a pull request, so the file lists cost one request per
+   * commit. `limit` is what keeps that from being paid quietly — over it, the
+   * answer is undefined and the caller says it could not model the merge
+   * rather than spending two hundred requests to.
+   *
+   * Newest first because that is the order `mergeCommitIterator` yields and
+   * the order the projection wants; GitHub lists them oldest first.
+   */
+  async pullRequestCommits(number, limit) {
+    const listed = [];
+    for (let page = 1; page <= 3; page++) {
+      const batch = await this.request("GET", this.repoPath(`/pulls/${number}/commits?per_page=100&page=${page}`));
+      for (const commit of batch) {
+        if (commit.sha) {
+          listed.push({ sha: commit.sha, message: commit.commit?.message ?? "" });
+        }
+      }
+      if (listed.length > limit) return void 0;
+      if (batch.length < 100) break;
+    }
+    if (listed.length === 0) return void 0;
+    const commits = [];
+    for (const commit of listed) {
+      commits.push({ ...commit, files: await this.commitFiles(commit.sha) });
+    }
+    return commits.reverse();
+  }
+  /**
+   * commitFiles lists what one commit changes, which for a merge commit is
+   * its diff against the first parent — the same diff `git log
+   * --diff-merges=first-parent` reports.
+   */
+  async commitFiles(sha) {
+    const raw = await this.request(
+      "GET",
+      this.repoPath(`/commits/${encodeURIComponent(sha)}`)
+    );
+    return (raw.files ?? []).flatMap(
+      (file) => file.filename ? [file.filename] : []
+    );
   }
   /**
    * openPullRequests lists every open pull request, following pages.
@@ -61540,6 +61591,49 @@ function commitFileIndex(refs, depth, run = gitRunner) {
   }
   return void 0;
 }
+function branchCommits(base, head, depth, run = gitRunner) {
+  try {
+    if (run(["rev-parse", "--is-shallow-repository"]).trim() === "true") {
+      return void 0;
+    }
+  } catch {
+    return void 0;
+  }
+  const range = `${base}..${head}`;
+  const files = indexOf(range, depth + 1, run);
+  if (!files) return void 0;
+  let out;
+  try {
+    out = run(["log", "-z", `--max-count=${depth + 1}`, "--format=%H%n%B", range]);
+  } catch {
+    return void 0;
+  }
+  const commits = [];
+  for (const entry of out.split("\0")) {
+    if (!entry.trim()) continue;
+    const newline = entry.indexOf("\n");
+    const sha = (newline === -1 ? entry : entry.slice(0, newline)).trim();
+    if (!sha) continue;
+    const own = files.get(sha);
+    if (!own) return void 0;
+    commits.push({
+      sha,
+      message: newline === -1 ? "" : entry.slice(newline + 1).trim(),
+      files: own
+    });
+    if (commits.length > depth) return void 0;
+  }
+  return commits;
+}
+function hasCommit(ref, run = gitRunner) {
+  if (!ref) return false;
+  try {
+    run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function indexOf(ref, depth, run) {
   let out;
   try {
@@ -61582,22 +61676,43 @@ var MERGE_METHODS = [
 function isMergeMethod(value) {
   return MERGE_METHODS.includes(value);
 }
+function projectedMethod(context) {
+  if (context.method !== "auto") return context.method;
+  const settings = context.settings;
+  if (!settings || settings.allowSquash) return "squash";
+  if (settings.allowMerge) return "merge";
+  if (settings.allowRebase) return "rebase";
+  return "squash";
+}
+var MERGE_COMMIT_SHA_SUFFIX = "-merge";
+function mergeCommitMessage(pr, settings) {
+  const subject = settings?.mergeTitle === "PR_TITLE" ? pr.title : `Merge pull request #${pr.number} from ${pr.headLabel}`;
+  const body = settings?.mergeMessage === "PR_BODY" ? pr.body.trim() : settings?.mergeMessage === "BLANK" ? "" : pr.title;
+  return body ? `${subject}
+
+${body}` : subject;
+}
+function mergeCommitFor(pr, files, settings) {
+  return {
+    sha: `${pr.headSha}${MERGE_COMMIT_SHA_SUFFIX}`,
+    message: mergeCommitMessage(pr, settings),
+    files: [...files]
+  };
+}
 function mergeAdvisories(context) {
   const advisories = [];
-  if (context.method === "merge" || context.method === "rebase") {
+  const wanted = projectedMethod(context);
+  const modelled = context.modelled ?? wanted;
+  if (wanted !== "squash") {
+    const why = context.method === "auto" ? "This repository does not allow squash-merge" : `This repository is configured as \`merge-method: ${wanted}\``;
+    const how = wanted === "merge" ? ", plus a merge commit above them" : ", which a rebase replays onto the target branch unchanged";
     advisories.push(
-      `- This repository is configured as \`merge-method: ${context.method}\`, so the working commits reach the target branch individually and release-please parses those, not the title. The projection below models a squash-merge and does not describe this merge.`
+      modelled === wanted ? `- ${why}, so the projection below models the branch's own commits${how}. release-please parses those, not the pull request title, so the title's type does not decide what releases and a title that is not a Conventional Commit is not a problem here.` : `- ${why}, but the branch's commits could not be read \u2014 the checkout is shallow or absent and the API could not stand in for it. **The projection below models a squash-merge and does not describe this merge.** Check the repository out with \`fetch-depth: 0\`.`
     );
     return advisories;
   }
   const settings = context.settings;
   if (!settings) return advisories;
-  if (!settings.allowSquash) {
-    advisories.push(
-      "- This repository does not allow squash-merge, and the projection models one. Merging will put the working commits on the target branch individually, and release-please will parse those instead of the title."
-    );
-    return advisories;
-  }
   if (settings.squashTitle === "COMMIT_OR_PR_TITLE" && context.commits === 1) {
     advisories.push(
       "- This repository's squash setting is `COMMIT_OR_PR_TITLE` and the branch has a single commit, so GitHub will prefill the squash subject from **that commit's message**, not from this title. The merge box is editable; the projection below assumes the title."
@@ -61889,7 +62004,7 @@ var SeamError = class extends Error {
     this.name = "SeamError";
   }
 };
-function viewWithPullRequest(base, commit, overrides = {}, readHeadFile) {
+function viewWithPullRequest(base, commit, overrides = {}, readHeadFile, branch) {
   if (typeof base.mergeCommitIterator !== "function") {
     throw new SeamError(
       "release-please's GitHub has no mergeCommitIterator; the seam this preview wraps has moved. See src/pr-view.ts."
@@ -61908,31 +62023,38 @@ function viewWithPullRequest(base, commit, overrides = {}, readHeadFile) {
   const message = commit.body.trim() ? `${commit.title}
 
 ${commit.body.trim()}` : commit.title;
-  const synthetic = {
-    sha: commit.headSha,
-    message,
-    files: commit.files,
+  const synthetic = branch && branch.length > 0 ? branch.map((c) => ({
+    sha: c.sha,
+    message: c.message,
+    files: c.files,
     pullRequest
-  };
+  })) : [
+    {
+      sha: commit.headSha,
+      message,
+      files: commit.files,
+      pullRequest
+    }
+  ];
   let consulted = false;
   const view = Object.create(base);
   view.mergeCommitIterator = async function* (targetBranch, options) {
     consulted = true;
-    yield synthetic;
+    for (const one of synthetic) yield one;
     yield* base.mergeCommitIterator(targetBranch, options);
   };
   const paths = Object.keys(overrides);
   if (paths.length > 0) {
-    view.getFileJson = async function(path, branch) {
+    view.getFileJson = async function(path, branch2) {
       if (Object.hasOwn(overrides, path)) return overrides[path];
-      return base.getFileJson(path, branch);
+      return base.getFileJson(path, branch2);
     };
   }
   if (readHeadFile) {
-    view.getFileContentsOnBranch = async function(path, branch) {
+    view.getFileContentsOnBranch = async function(path, branch2) {
       const content = readHeadFile(path);
       if (content === void 0) {
-        return base.getFileContentsOnBranch(path, branch);
+        return base.getFileContentsOnBranch(path, branch2);
       }
       return {
         sha: "",
@@ -62118,7 +62240,8 @@ async function project(options) {
     source,
     options.commit,
     overrides,
-    options.readHeadFile
+    options.readHeadFile,
+    options.branch
   );
   armBoundaryWatch();
   drainBoundaries();
@@ -62146,10 +62269,13 @@ async function project(options) {
     options.commit.files,
     packages.map((p) => p.path)
   );
-  const notes2 = releaseAsNotes(options.commit.body);
-  const honoured = notes2.seen.find((v) => projected.some((r) => r.version === v));
-  const asked = honoured ?? notes2.meant;
-  const ignoredReleaseAs = !honoured && notes2.meant && touched.size > 0 ? notes2.meant : void 0;
+  const sources = options.branch?.length ? [...options.branch.map((c) => c.message), options.commit.body] : [options.commit.body];
+  const notes2 = sources.map(releaseAsNotes);
+  const seen2 = notes2.flatMap((n) => n.seen);
+  const meant = notes2.map((n) => n.meant).find((v) => v !== void 0);
+  const honoured = seen2.find((v) => projected.some((r) => r.version === v));
+  const asked = honoured ?? meant;
+  const ignoredReleaseAs = !honoured && meant && touched.size > 0 ? meant : void 0;
   return {
     packages,
     touched,
@@ -62199,9 +62325,20 @@ import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:f
 import { resolve as resolve2 } from "node:path";
 
 // src/render.ts
-function visibleTitle(options) {
+function subjectsOf(options) {
+  if (!options.commitMessages) return [options.title];
+  return options.commitMessages.flatMap(
+    (message) => message.split(/\r?\n\s*\r?\n/).flatMap((paragraph) => {
+      const first = paragraph.trim().split("\n", 1)[0];
+      return first ? [first] : [];
+    })
+  );
+}
+function visibleInput(options) {
   const types = options.types ?? DEFAULT_TYPES;
-  return types.visible.has(titleType(options.title) ?? "");
+  return subjectsOf(options).some(
+    (subject) => types.visible.has(titleType(subject) ?? "")
+  );
 }
 function footer(options) {
   const parts = [];
@@ -62379,7 +62516,8 @@ function verdict(projection, options, moved, unmoved, touchedPackages) {
   if (moved.length > 0) return void 0;
   const type = titleType(options.title) ?? "";
   if (unmoved.length > 0) {
-    return visibleTitle(options) ? `No version change \u2014 \`${type}:\` adds only a changelog line.` : `No version change \u2014 \`${type}:\` adds nothing to the release already coming.`;
+    const subject = options.commitMessages ? "the branch's commits add" : `\`${type}:\` adds`;
+    return visibleInput(options) ? `No version change \u2014 ${subject} only a changelog line.` : `No version change \u2014 ${subject} nothing to the release already coming.`;
   }
   return none(projection, options, touchedPackages);
 }
@@ -62427,7 +62565,10 @@ function none(projection, options, touched) {
     return line;
   }
   const type = titleType(options.title) ?? "";
-  return visibleTitle(options) ? "None \u2014 release-please projects no release for the packages touched." : `None \u2014 \`${type}:\` produces no release.`;
+  if (visibleInput(options)) {
+    return "None \u2014 release-please projects no release for the packages touched.";
+  }
+  return options.commitMessages ? "None \u2014 no commit on this branch produces a release." : `None \u2014 \`${type}:\` produces no release.`;
 }
 function releasePrUrl(component, options) {
   const prs = options.releasePrs;
@@ -62466,9 +62607,8 @@ function warn(projection, options, moved, components) {
     );
   }
   if (projection.ignoredReleaseAs) {
-    warnings.push(
-      `- \`Release-As: ${projection.ignoredReleaseAs}\` was **ignored** \u2014 release-please returned a different version. A note only counts when it parses as a git trailer, so no non-trailer text may follow it: a \`---\` rule or an attribution line below it voids it silently. Check the merge box too, which is prefilled from the description but editable.`
-    );
+    const why = options.commitMessages ? " release-please returned a different version. This repository does not squash, so the description is not a commit message: it reaches release-please only where the merge commit is configured to carry it, and a merge subject that is not a Conventional Commit voids the whole message anyway. Put the note in a commit on the branch, at the end of its message, where it parses as a git trailer." : " release-please returned a different version. A note only counts when it parses as a git trailer, so no non-trailer text may follow it: a `---` rule or an attribution line below it voids it silently. Check the merge box too, which is prefilled from the description but editable.";
+    warnings.push(`- \`Release-As: ${projection.ignoredReleaseAs}\` was **ignored** \u2014${why}`);
   }
   return warnings;
 }
@@ -62765,7 +62905,8 @@ async function buildComment(options) {
     ...options.typeOverrides?.hidden ? { hidden: options.typeOverrides.hidden } : {},
     ...options.releaseBranchPrefix ? { releaseBranchPrefix: options.releaseBranchPrefix } : {}
   });
-  const malformed = isMalformed(options.title, types);
+  const commitMessages = options.branch?.length ? options.branch.map((commit) => commit.message) : void 0;
+  const malformed = commitMessages ? false : isMalformed(options.title, types);
   const projection = malformed ? EMPTY : await projectPullRequest(options, config, manifest, {
     configFile,
     manifestFile,
@@ -62775,6 +62916,7 @@ async function buildComment(options) {
     title: options.title,
     malformed,
     types,
+    ...commitMessages ? { commitMessages } : {},
     ...options.releasePrs ? { releasePrs: options.releasePrs } : {},
     ...options.headSha ? { headSha: options.headSha } : {},
     ...options.runUrl ? { runUrl: options.runUrl } : {},
@@ -62814,6 +62956,7 @@ async function projectPullRequest(options, config, manifest, files) {
       return existsSync2(full) ? readFileSync3(full, "utf8") : void 0;
     },
     ...options.plain ? { plain: options.plain } : {},
+    ...options.branch?.length ? { branch: options.branch } : {},
     commit: {
       title: options.title,
       body: options.body,
@@ -62947,9 +63090,29 @@ async function action(env = process.env) {
   const headBranch = inputOr("head-branch", event.headBranch ?? "", env);
   quietLogger();
   const plain = plainConfig((name2) => input(name2, env), (name2) => `input \`${name2}\``);
-  const advisories = await mergeNotes(client, env, event.commits);
+  const merge = await mergePlan(client, env);
   const releasePrs = await standingReleasePrs(client, env, base);
   const files = await pullRequestFiles(client, number, base, env);
+  const branch = merge.method === "squash" ? void 0 : await branchInput(client, env, merge.method, {
+    number,
+    base,
+    headSha,
+    files,
+    settings: merge.settings,
+    pr: {
+      number,
+      title,
+      body,
+      headLabel: `${owner}/${headBranch || "HEAD"}`,
+      headSha: headSha || "0".repeat(40)
+    }
+  });
+  const advisories = mergeAdvisories({
+    method: merge.declared,
+    ...merge.settings ? { settings: merge.settings } : {},
+    commits: event.commits,
+    modelled: branch ? merge.method : "squash"
+  });
   const outcome = await buildComment({
     owner,
     repo,
@@ -62961,6 +63124,7 @@ async function action(env = process.env) {
     headSha,
     headBranch,
     files,
+    ...branch ? { branch } : {},
     repoRoot: inputOr("repo-root", ".", env),
     // The same ref the changed-file diff runs against, so one input decides
     // where both local reads look.
@@ -63014,22 +63178,61 @@ function typeOverrides(env) {
   if (!visible && !hidden) return void 0;
   return { ...visible ? { visible } : {}, ...hidden ? { hidden } : {} };
 }
-async function mergeNotes(client, env, commits) {
+async function mergePlan(client, env) {
   const declared = inputOr("merge-method", "auto", env);
   if (!isMergeMethod(declared)) {
     throw new Error(
       `input \`merge-method\` must be one of ${MERGE_METHODS.join(", ")}`
     );
   }
-  const method = declared;
-  if (method !== "auto") return mergeAdvisories({ method, commits });
+  if (declared === "squash" || declared === "rebase") {
+    return { declared, method: declared };
+  }
   try {
     const settings = await client.mergeSettings();
-    return mergeAdvisories({ method, settings, commits });
+    return {
+      declared,
+      method: projectedMethod({ method: declared, settings }),
+      settings
+    };
   } catch (error) {
     warning(`could not read the repository's merge settings: ${String(error)}`);
-    return [];
+    return { declared, method: projectedMethod({ method: declared }) };
   }
+}
+var API_BRANCH_COMMITS = 50;
+function branchHead(env, headSha, has = hasCommit) {
+  return input("head", env) || (has(headSha) ? headSha : "HEAD");
+}
+async function branchInput(client, env, method, pull) {
+  const source = inputOr("changed-files", "auto", env);
+  let commits;
+  if (source !== "api") {
+    commits = branchCommits(
+      inputOr("diff-base", `origin/${pull.base}`, env),
+      branchHead(env, pull.headSha),
+      COMMIT_SEARCH_DEPTH
+    );
+    if (commits?.length === 0) commits = void 0;
+  }
+  if (!commits && source !== "git") {
+    try {
+      commits = await client.pullRequestCommits(
+        pull.number,
+        API_BRANCH_COMMITS
+      );
+      if (commits) {
+        const many = commits.length === 1 ? "commit" : "commits";
+        notice(
+          `read the branch's ${commits.length} ${many} from the API, one request each for their files. Check the repository out with \`fetch-depth: 0\` to read them locally instead.`
+        );
+      }
+    } catch (error) {
+      warning(`could not read the branch's commits: ${String(error)}`);
+    }
+  }
+  if (!commits || commits.length === 0) return void 0;
+  return method === "merge" ? [mergeCommitFor(pull.pr, pull.files, pull.settings), ...commits] : commits;
 }
 async function standingReleasePrs(client, env, base) {
   if (!boolInput("link-release-prs", true, env)) return /* @__PURE__ */ new Map();
@@ -63122,6 +63325,10 @@ async function cli(argv2) {
       // tool where there is no checkout to diff -- a test, or a projection
       // reconstructed after the fact from a merge's file list.
       files: { type: "string" },
+      // No `auto` here: reading the repository's settings takes the API
+      // client the action has and this does not. Unset is squash-merge, which
+      // is what `auto` resolves to for every repository that allows one.
+      "merge-method": { type: "string", default: "squash" },
       "visible-types": { type: "string" },
       "hidden-types": { type: "string" },
       "api-url": { type: "string" },
@@ -63146,17 +63353,44 @@ async function cli(argv2) {
     (name3) => values[name3],
     (name3) => `--${name3}`
   );
+  const body = values["body-file"] ? readFileSync6(values["body-file"], "utf8") : "";
+  const declared = values["merge-method"];
+  if (!isMergeMethod(declared) || declared === "auto") {
+    throw new Error(
+      `--merge-method must be one of ${MERGE_METHODS.filter((m) => m !== "auto").join(", ")}`
+    );
+  }
+  const method = projectedMethod({ method: declared });
+  const files = list(values.files) ?? changedFiles(values["diff-base"] || `origin/${base}`, values.head);
+  const branch = method === "squash" ? void 0 : branchInput2(method, {
+    base: values["diff-base"] || `origin/${base}`,
+    head: values.head,
+    files,
+    pr: {
+      number: Number(values.number) || 0,
+      title,
+      body,
+      headLabel: `${owner}/${values["head-branch"] || values.head}`,
+      headSha: values["head-sha"] || "0".repeat(40)
+    }
+  });
+  const advisories = mergeAdvisories({
+    method: declared,
+    modelled: branch ? method : "squash"
+  });
   const outcome = await buildComment({
     owner,
     repo: name2,
     token: values.token,
     title,
-    body: values["body-file"] ? readFileSync6(values["body-file"], "utf8") : "",
+    body,
     number: Number(values.number) || 0,
     base,
     headSha: values["head-sha"],
     headBranch: values["head-branch"],
-    files: list(values.files) ?? changedFiles(values["diff-base"] || `origin/${base}`, values.head),
+    files,
+    ...branch ? { branch } : {},
+    ...advisories.length ? { advisories } : {},
     repoRoot: values["repo-root"],
     baseRef: values["diff-base"] || `origin/${base}`,
     configFile: values["config-file"],
@@ -63176,6 +63410,15 @@ async function cli(argv2) {
   });
   if (values.out) writeFileSync2(values.out, outcome.body);
   else process.stdout.write(outcome.body);
+}
+function branchInput2(method, options) {
+  const commits = branchCommits(
+    options.base,
+    options.head,
+    COMMIT_SEARCH_DEPTH
+  );
+  if (!commits || commits.length === 0) return void 0;
+  return method === "merge" ? [mergeCommitFor(options.pr, options.files), ...commits] : commits;
 }
 
 // src/index.ts

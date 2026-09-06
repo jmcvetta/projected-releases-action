@@ -57,6 +57,20 @@ export interface FakeRepo {
    * REST endpoint the action falls back to when the checkout cannot be
    * diffed. Absent means the pull request has none. */
   prFiles?: Record<number, string[]>;
+  /**
+   * prCommits are the commits on a pull request's branch, oldest first as
+   * GitHub lists them. They are what a merge or a rebase puts on the target
+   * branch, and the action reads them here when the checkout is too shallow
+   * to hold them -- one further request each for their files, which is why
+   * the fake serves those from the same list.
+   */
+  prCommits?: Record<number, { sha: string; message: string; files: string[] }[]>;
+  /**
+   * merge overrides the repository's merge-button settings, which decide
+   * which merge the projection models. The default is a squash-merging
+   * repository.
+   */
+  merge?: Record<string, unknown>;
   /** commentStatus forces a status on the comment write endpoints. 403 and
    * 404 are what a fork's read-only token gets and are meant to cost the
    * comment rather than the run; anything else is a real failure. */
@@ -118,6 +132,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   // of them carries pagination in the query string.
   const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const FILES = new RegExp(`^${escaped}/pulls/(\\d+)/files$`);
+  const PR_COMMITS = new RegExp(`^${escaped}/pulls/(\\d+)/commits$`);
   const COMMENTS = new RegExp(`^${escaped}/issues/\\d+/comments$`);
   const COMMENT = new RegExp(`^${escaped}/issues/comments/(\\d+)$`);
   const COMMIT_FILES = new RegExp(`^${escaped}/commits/([0-9a-z]+)$`);
@@ -195,6 +210,23 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
           })),
         );
       }
+      const prCommits = PR_COMMITS.exec(path);
+      if (prCommits) {
+        // Paged as GitHub pages it, because how many pages the action asks
+        // for is part of what it costs a repository: a caller that has
+        // already decided a branch is too long to model must stop asking.
+        const query = new URLSearchParams(url.split("?")[1] ?? "");
+        const perPage = Number(query.get("per_page") ?? "30");
+        const page = Number(query.get("page") ?? "1");
+        const all = repo.prCommits?.[Number(prCommits[1])] ?? [];
+        return send(
+          200,
+          all.slice((page - 1) * perPage, page * perPage).map((commit) => ({
+            sha: commit.sha,
+            commit: { message: commit.message },
+          })),
+        );
+      }
       if (COMMENTS.test(path)) {
         if (req.method === "GET") return send(200, comments);
         if (repo.commentStatus) {
@@ -222,7 +254,11 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
       if (commit) {
         // What release-please backfills a file list with when GraphQL gave it
         // no pull request to read one from.
-        const found = repo.commits.find((c) => c.sha === commit[1]);
+        const found =
+          repo.commits.find((c) => c.sha === commit[1]) ??
+          Object.values(repo.prCommits ?? {})
+            .flat()
+            .find((c) => c.sha === commit[1]);
         if (!found) return send(404, { message: "no commit" });
         return send(200, {
           sha: found.sha,
@@ -272,6 +308,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
           default_branch: repo.branch,
           allow_squash_merge: true,
           squash_merge_commit_title: "PR_TITLE",
+          ...repo.merge,
         });
       }
       return send(404, { message: `fake has no ${url}` });

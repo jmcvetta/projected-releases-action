@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,6 +103,68 @@ describe("cli", () => {
     writeFileSync(body, "Release-As: 9.9.9\n");
     await cli(await flags(["--body-file", body]));
     expect(printed()).toContain("9.9.9");
+  });
+
+  it("says so when it cannot read the commits a merge would write", async () => {
+    // An empty range in whatever checkout this suite runs in, which is the
+    // same answer a shallow one gives: nothing to model the merge from.
+    await cli(
+      await flags([
+        "--merge-method", "rebase",
+        "--diff-base", "HEAD",
+        "--head", "HEAD",
+      ]),
+    );
+    expect(printed()).toContain("does not describe this merge");
+  });
+
+  it("refuses `auto`, which needs a repository read it does not make", async () => {
+    await expect(
+      cli(await flags(["--merge-method", "auto"])),
+    ).rejects.toThrow(/--merge-method must be one of/);
+  });
+
+  it("projects a merge commit from a checkout it is run inside", async () => {
+    // The whole command line path for a merge-commit repository: the branch's
+    // commits out of git, the merge commit spelled on top, and the title
+    // reaching release-please through the merge commit's body.
+    const dir = tmp();
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+    git(["init", "-q", "-b", "master"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "Test"]);
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    git(["add", "a.txt"]);
+    git(["commit", "-q", "-m", "chore: start"]);
+    git(["checkout", "-q", "-b", "topic"]);
+    // The same path `--files` names, so the branch commit and the pull
+    // request agree about what changed.
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "b.ts"), "b\n");
+    git(["add", "src/b.ts"]);
+    git(["commit", "-q", "-m", "fix: a crash"]);
+
+    const cwd = process.cwd();
+    try {
+      process.chdir(dir);
+      await cli(
+        await flags([
+          "--merge-method", "merge",
+          "--diff-base", "master",
+          "--head", "topic",
+        ]),
+      );
+    } finally {
+      process.chdir(cwd);
+    }
+
+    const out = printed();
+    expect(out).toContain(", plus a merge commit above them");
+    // The branch's `fix:` and, through the merge commit's body, the `feat:`
+    // title -- so a minor rather than the patch the branch alone would cut.
+    expect(out).toContain("a crash");
+    expect(out).toContain("a thing");
   });
 
   it("requires the two things it cannot guess", async () => {
