@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setLogger } from "release-please";
@@ -209,7 +209,7 @@ describe("buildComment", () => {
  * describes: `root` is what the action would be pointed at, which is the
  * whole input to the mode check.
  */
-async function plainOutcome(root: string) {
+async function plainOutcome(root: string, workflow?: string) {
   return buildComment({
     owner: "acme",
     repo: "widgets",
@@ -223,6 +223,7 @@ async function plainOutcome(root: string) {
     files: ["src/x.ts"],
     repoRoot: root,
     plain: { releaseType: "node" },
+    ...(workflow ? { releaseWorkflow: workflow } : {}),
     github: fakeScm({
       config: {},
       manifest: {},
@@ -231,6 +232,18 @@ async function plainOutcome(root: string) {
     }),
     now: new Date("2026-09-01T12:00:00Z"),
   });
+}
+
+/** releaseWorkflow writes a release-please-action caller into a checkout,
+ * with the `with:` block the caller describes. */
+function releaseWorkflow(root: string, block: string): void {
+  const dir = join(root, ".github", "workflows");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "release-please.yml"),
+    "jobs:\n  release:\n    steps:\n" +
+      `      - uses: googleapis/release-please-action@v5\n        with:${block || "\n          token: x"}\n`,
+  );
 }
 
 describe("buildComment's mode switch", () => {
@@ -254,6 +267,37 @@ describe("buildComment's mode switch", () => {
     const outcome = await plainOutcome(mkdtempSync(join(tmpdir(), "projected-releases-")));
     expect(outcome.advisories).toEqual([]);
     expect(outcome.body).not.toContain("`release-type` is set");
+  });
+
+  // The release workflow answers what the checkout could only raise, so the
+  // note becomes a statement rather than a warning about one of two
+  // possibilities -- and the two notes never appear together.
+  it("takes the mode from the release workflow when it can read one", async () => {
+    const root = fixture();
+    releaseWorkflow(root, "");
+    const outcome = await plainOutcome(root);
+    expect(outcome.advisories).toHaveLength(1);
+    expect(outcome.advisories[0]).toContain("calls release-please-action");
+    expect(outcome.advisories[0]).toContain("without one");
+    expect(outcome.body).not.toContain("in the checkout were not read");
+  });
+
+  // And when the workflow agrees, the config files in the checkout are not a
+  // problem at all: release-please will ignore them for the same reason this
+  // projection did. The guess had no way to know that.
+  it("says nothing about files a release workflow it agrees with also ignores", async () => {
+    const root = fixture();
+    releaseWorkflow(root, "\n          release-type: node");
+    const outcome = await plainOutcome(root);
+    expect(outcome.advisories).toEqual([]);
+  });
+
+  it("reads no workflow when told off", async () => {
+    const root = fixture();
+    releaseWorkflow(root, "\n          release-type: node");
+    const outcome = await plainOutcome(root, "off");
+    // Back to the checkout-only guess, which is what `off` asks for.
+    expect(outcome.body).toContain("in the checkout were not read");
   });
 
   // The same switch read the other way round: no `release-type`, so the files

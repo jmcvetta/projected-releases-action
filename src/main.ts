@@ -28,6 +28,7 @@ import {
 } from "./project.js";
 import { loadReleasePrs } from "./release-prs.js";
 import { buildComment, quietLogger } from "./run.js";
+import { AUTO } from "./workflow.js";
 
 /**
  * cli renders one projection from command line flags. Exported rather than
@@ -54,6 +55,9 @@ export async function cli(argv: string[]): Promise<void> {
       "repo-root": { type: "string", default: "." },
       "config-file": { type: "string", default: DEFAULT_CONFIG_FILE },
       "manifest-file": { type: "string", default: DEFAULT_MANIFEST_FILE },
+      // The release workflow this repository's plain-mode inputs are a second
+      // copy of: `auto` finds it, `off` reads nothing, a path names it.
+      "release-workflow": { type: "string", default: AUTO },
       "release-prs": { type: "string" },
       "release-branch-prefix": { type: "string" },
       // Plain mode: one package, configured here, no config or manifest file
@@ -160,6 +164,7 @@ export async function cli(argv: string[]): Promise<void> {
     baseRef: values["diff-base"] || `origin/${base}`,
     configFile: values["config-file"],
     manifestFile: values["manifest-file"],
+    releaseWorkflow: values["release-workflow"],
     releasePrs: values["release-prs"]
       ? loadReleasePrs(
           readFileSync(values["release-prs"], "utf8"),

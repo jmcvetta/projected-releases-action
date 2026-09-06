@@ -75,6 +75,12 @@ async function project(title: string, extra: string[] = []): Promise<string> {
       "--number", "7",
       "--head-sha", "c".repeat(40),
       "--files", "src/b.ts",
+      // This runs in this repository's own checkout, and the input
+      // comparison would find this repository's own release workflow. What
+      // that workflow says is not what this test is measuring, and a change
+      // to it does not even run this suite -- test.yml's `paths:` list does
+      // not name .github/workflows.
+      "--release-workflow", "off",
       ...extra,
     ],
     { env: { ...process.env, GITHUB_TOKEN: "fake" } },

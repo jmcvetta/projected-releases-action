@@ -55,7 +55,11 @@ afterEach(async () => {
 const tmp = () => mkdtempSync(join(tmpdir(), "projected-releases-"));
 
 /** flags are the ordinary invocation. `--files` is supplied rather than
- * diffed, so nothing here depends on the checkout it runs in. */
+ * diffed and `--release-workflow off` reads no workflow, so nothing here
+ * depends on the checkout it runs in -- which is this repository, whose own
+ * release workflow the comparison would otherwise find and have opinions
+ * about. The flag itself is covered below, against a checkout written for
+ * it. */
 async function flags(
   extra: string[] = [],
   over: Partial<FakeRepo> = {},
@@ -71,6 +75,7 @@ async function flags(
     "--number", "7",
     "--head-sha", "c".repeat(40),
     "--files", "src/b.ts",
+    "--release-workflow", "off",
     ...extra,
   ];
 }
@@ -209,6 +214,25 @@ describe("cli", () => {
     // whole assertion.
     expect(printed()).toContain("| **1.0.0** |");
     expect(printed()).not.toContain("acme-api");
+  });
+
+  // The action reads its release workflow through the same code, and the two
+  // entry points reading one option from different places is the pair that
+  // drifts -- which is what this file is for.
+  it("compares the plain-mode flags with the release workflow it is pointed at", async () => {
+    const root = tmp();
+    mkdirSync(join(root, ".github", "workflows"), { recursive: true });
+    writeFileSync(
+      join(root, ".github", "workflows", "release.yml"),
+      "jobs:\n  release:\n    steps:\n" +
+        "      - uses: googleapis/release-please-action@v5\n" +
+        "        with:\n          release-type: node\n" +
+        "          versioning-strategy: always-bump-patch\n",
+    );
+    await cli(
+      await flags(["--repo-root", root, "--release-workflow", "auto"]),
+    );
+    expect(printed()).toContain("`versioning-strategy: always-bump-patch`");
   });
 
   it("refuses a value for it that is neither", async () => {

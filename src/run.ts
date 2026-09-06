@@ -25,6 +25,7 @@ import {
 import type { PlainConfig, Projection } from "./project.js";
 import type { BranchCommit } from "./pr-view.js";
 import { render } from "./render.js";
+import { compareReleaseWorkflow } from "./workflow.js";
 
 /** EMPTY is the projection rendered when the title is withheld from one. */
 const EMPTY: Projection = {
@@ -85,6 +86,14 @@ export interface RunOptions {
   plain?: PlainConfig | undefined;
   configFile?: string;
   manifestFile?: string;
+  /**
+   * releaseWorkflow is where the workflow calling release-please-action is:
+   * `auto` scans `.github/workflows` under `repoRoot`, `off` reads nothing,
+   * and anything else is one workflow's path. Reading it turns a second copy
+   * of this repository's release configuration into something the projection
+   * can check itself against.
+   */
+  releaseWorkflow?: string | undefined;
   /** releasePrs maps a component to its standing release pull request URL. */
   releasePrs?: Map<string, string>;
   /** runUrl is this workflow run, linked from the comment's footer. */
@@ -218,10 +227,11 @@ interface ModeContext {
  * reads the files this projection ignored, and the projection describes a
  * configuration that will never run.
  *
- * Which of those two it is cannot be known from here: it is in a workflow
- * file, and reading that is a parser whose failures would land on the
- * projection itself. So the note says what is true either way and leaves the
- * reading to the reader, as the boundary warning does.
+ * Which of those two it is is a question about a workflow file, and
+ * `compareReleaseWorkflow` answers it whenever that file can be found and
+ * read. This is what is left when it cannot: a note saying what is true
+ * either way, leaving the reading to the reader, as the boundary warning
+ * does. buildComment calls one or the other, never both.
  *
  * No checkout at all is not this condition. A run with `changed-files: api`
  * and no `actions/checkout` finds nothing, which is indistinguishable from a
@@ -277,14 +287,28 @@ export async function buildComment(options: RunOptions): Promise<Outcome> {
     ? {}
     : (readJson(manifestFile, configFile) as Record<string, string>);
 
+  // The release workflow answers the mode question outright when it can be
+  // read, so the checkout-only guess below is made only when it cannot.
+  const workflow = compareReleaseWorkflow({
+    ...(options.plain ? { plain: options.plain } : {}),
+    configFile,
+    manifestFile,
+    base: options.base,
+    root,
+    ...(options.releaseWorkflow ? { workflow: options.releaseWorkflow } : {}),
+  });
+
   const advisories = [
     ...(options.advisories ?? []),
-    ...modeAdvisories({
-      plain: options.plain !== undefined,
-      root,
-      configFile,
-      manifestFile,
-    }),
+    ...workflow.notes,
+    ...(workflow.decided
+      ? []
+      : modeAdvisories({
+          plain: options.plain !== undefined,
+          root,
+          configFile,
+          manifestFile,
+        })),
   ];
 
   const types = resolveTypes({

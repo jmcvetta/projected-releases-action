@@ -386,6 +386,42 @@ what is true of both and leaves the reading to the reader.
 manifest resolves on its own branch and not on the one it targets, which is
 the ordinary shape of the repair, so the warning says which side it found.
 
+## The plain-mode inputs are checked against the release workflow, never taken from it
+
+A plain-mode repository configures release-please on `release-please-action`,
+and projecting it means writing those values a second time here. `workflow.ts`
+finds the step that calls it and compares the two, which is the whole of what
+it does: **nothing is read in to replace what the caller typed.** Reading the
+workflow to *supply* the configuration would put every one of that parser's
+failure modes -- the wrong file, the wrong job, an unresolved `${{ }}`, two
+callers -- into the number on the comment, which is the one thing that has to
+be trustworthy. Checking fails the other way: every uncertainty is `return`,
+and the result is the silence that existed before it.
+
+**What makes "unset" comparable is upstream's defaults, measured from
+release-please-action's own `action.yml`** rather than assumed: `path` empty is
+the root, `include-component-in-tag` is **false** (the same value
+`PLAIN_INCLUDE_COMPONENT_IN_TAG` picks, which is why a single-package
+repository agrees with its workflow without either side typing anything), and
+`versioning-strategy` is `default`. Get one of those wrong and the comparison
+accuses every correctly configured repository of drifting. Its `path`,
+incidentally, is this action's `package-path`; a note has to name each side by
+the name that side writes, or it sends the reader to edit the wrong file.
+
+The mode question the checkout could only *raise* -- `release-type` set here
+with config files present, which is either half of a pair being wrong -- this
+answers outright, so `buildComment` runs `modeAdvisories` only when no
+governing caller was found. Both notes at once would be one guess restating
+one fact.
+
+**Three test files run in this repository's own checkout**, so `auto` finds
+this repository's own `release-please.yml`: `action.test.ts`, `main.test.ts`
+and `bundle.test.ts` therefore pass `release-workflow: off` in their shared
+fixtures and cover the comparison against a checkout written for it. That is
+not tidiness. `test.yml`'s `paths:` allow-list does not name
+`.github/workflows`, so a change to the release workflow would not run the
+suite it had just broken.
+
 ## The two passes read the history once, and the file lists come from git
 
 A projection runs release-please twice over the same target branch, and the

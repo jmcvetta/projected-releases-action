@@ -1,6 +1,6 @@
 {
   "name": "release-please-projected-releases-action",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Say on a pull request which release-please tags merging it will cut.",
   "type": "module",
   "engines": {
@@ -15,7 +15,8 @@
     "cover": "VITEST_COVER=--coverage npm run check"
   },
   "dependencies": {
-    "release-please": "17.11.2"
+    "release-please": "17.11.2",
+    "yaml": "^2.9.0"
   },
   "license": "GPL-3.0-or-later",
   "author": "Jason McVetta",
@@ -33,7 +34,6 @@
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0",
-    "yaml": "^2.9.0"
+    "vitest": "^5.0.0"
   }
 }
