@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.5.0...v0.6.0) (2026-09-06)
+
+
+### Features
+
+* project merge-commit and rebase repositories, not only squash ([#62](https://github.com/jmcvetta/release-please-projected-releases-action/issues/62)) ([e73e3af](https://github.com/jmcvetta/release-please-projected-releases-action/commit/e73e3af0225bf27167a5e85df8f2b87730bdf6cd))
+
 ## [0.5.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.4.0...v0.5.0) (2026-09-06)
 
 
