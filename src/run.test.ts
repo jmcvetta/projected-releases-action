@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setLogger } from "release-please";
 import { fakeScm, RELEASE_SHA } from "./fake-scm.fixture.js";
+import type { BranchCommit } from "./pr-view.js";
 import { buildComment, graphqlRoot } from "./run.js";
 import type { quietLogger as QuietLogger } from "./run.js";
 
@@ -54,7 +55,13 @@ function fixture(config: unknown = CONFIG): string {
 
 async function comment(
   title: string,
-  over: { config?: unknown; files?: string[]; advisories?: string[]; body?: string } = {},
+  over: {
+    config?: unknown;
+    files?: string[];
+    advisories?: string[];
+    body?: string;
+    branch?: BranchCommit[];
+  } = {},
 ): Promise<string> {
   const config = over.config ?? CONFIG;
   const outcome = await buildComment({
@@ -72,6 +79,7 @@ async function comment(
     github: fakeScm({ config, manifest: MANIFEST }),
     now: new Date("2026-09-01T12:00:00Z"),
     ...(over.advisories ? { advisories: over.advisories } : {}),
+    ...(over.branch ? { branch: over.branch } : {}),
   });
   return outcome.body;
 }
@@ -104,6 +112,29 @@ describe("buildComment", () => {
     expect(out).toContain("None — malformed PR title.");
     expect(out).toContain("> WIP: still working");
     expect(out).not.toContain("acme-api@v");
+  });
+
+  it("does not withhold one where the title is not the commit at all", async () => {
+    // Under a merge or a rebase the branch's commits are what release-please
+    // parses. A title that is not a Conventional Commit then describes
+    // nothing that will ever be a commit message, so the gate it fails is a
+    // gate this repository does not have -- and withholding the answer over
+    // it withholds the answer to the question it does ask.
+    const out = await comment("WIP: still working", {
+      branch: [
+        { sha: "aaa", message: "feat: a widget", files: ["api/src/x.ts"] },
+      ],
+    });
+    expect(out).not.toContain("malformed PR title");
+    expect(out).toContain("acme-api@v2.5.0");
+  });
+
+  it("explains an empty answer by the commits, not by the title's type", async () => {
+    const out = await comment("feat: a thing", {
+      branch: [{ sha: "aaa", message: "chore: tidy", files: ["api/src/x.ts"] }],
+    });
+    expect(out).toContain("None — no commit on this branch produces a release.");
+    expect(out).not.toContain("`feat:` produces no release");
   });
 
   it("resolves the recognized types from the repository's own config", async () => {

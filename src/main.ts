@@ -11,9 +11,21 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { changedFiles } from "./git.js";
+import { branchCommits, changedFiles } from "./git.js";
+import {
+  isMergeMethod,
+  mergeAdvisories,
+  mergeCommitFor,
+  MERGE_METHODS,
+  projectedMethod,
+} from "./merge-method.js";
 import { plainConfig } from "./plain.js";
-import { DEFAULT_CONFIG_FILE, DEFAULT_MANIFEST_FILE } from "./project.js";
+import type { BranchCommit } from "./pr-view.js";
+import {
+  COMMIT_SEARCH_DEPTH,
+  DEFAULT_CONFIG_FILE,
+  DEFAULT_MANIFEST_FILE,
+} from "./project.js";
 import { loadReleasePrs } from "./release-prs.js";
 import { buildComment, quietLogger } from "./run.js";
 
@@ -64,6 +76,10 @@ export async function cli(argv: string[]): Promise<void> {
       // tool where there is no checkout to diff -- a test, or a projection
       // reconstructed after the fact from a merge's file list.
       files: { type: "string" },
+      // No `auto` here: reading the repository's settings takes the API
+      // client the action has and this does not. Unset is squash-merge, which
+      // is what `auto` resolves to for every repository that allows one.
+      "merge-method": { type: "string", default: "squash" },
       "visible-types": { type: "string" },
       "hidden-types": { type: "string" },
       "api-url": { type: "string" },
@@ -94,19 +110,52 @@ export async function cli(argv: string[]): Promise<void> {
     (name) => `--${name}`,
   );
 
+  const body = values["body-file"]
+    ? readFileSync(values["body-file"], "utf8")
+    : "";
+  const declared = values["merge-method"];
+  if (!isMergeMethod(declared) || declared === "auto") {
+    throw new Error(
+      `--merge-method must be one of ${MERGE_METHODS.filter((m) => m !== "auto").join(", ")}`,
+    );
+  }
+  const method = projectedMethod({ method: declared });
+  const files =
+    list(values.files) ??
+    changedFiles(values["diff-base"] || `origin/${base}`, values.head);
+  const branch =
+    method === "squash"
+      ? undefined
+      : branchInput(method, {
+          base: values["diff-base"] || `origin/${base}`,
+          head: values.head,
+          files,
+          pr: {
+            number: Number(values.number) || 0,
+            title,
+            body,
+            headLabel: `${owner}/${values["head-branch"] || values.head}`,
+            headSha: values["head-sha"] || "0".repeat(40),
+          },
+        });
+  const advisories = mergeAdvisories({
+    method: declared,
+    modelled: branch ? method : "squash",
+  });
+
   const outcome = await buildComment({
     owner,
     repo: name,
     token: values.token,
     title,
-    body: values["body-file"] ? readFileSync(values["body-file"], "utf8") : "",
+    body,
     number: Number(values.number) || 0,
     base,
     headSha: values["head-sha"],
     headBranch: values["head-branch"],
-    files:
-      list(values.files) ??
-      changedFiles(values["diff-base"] || `origin/${base}`, values.head),
+    files,
+    ...(branch ? { branch } : {}),
+    ...(advisories.length ? { advisories } : {}),
     repoRoot: values["repo-root"],
     baseRef: values["diff-base"] || `origin/${base}`,
     configFile: values["config-file"],
@@ -132,4 +181,30 @@ export async function cli(argv: string[]): Promise<void> {
 
   if (values.out) writeFileSync(values.out, outcome.body);
   else process.stdout.write(outcome.body);
+}
+
+/**
+ * branchInput reads the commits merging would put on the target branch, for
+ * the command line's checkout. No API fallback here: the command line is run
+ * from a checkout by definition, and one that cannot answer is one to deepen
+ * rather than to pay the API for.
+ */
+function branchInput(
+  method: "merge" | "rebase",
+  options: {
+    base: string;
+    head: string;
+    files: string[];
+    pr: Parameters<typeof mergeCommitFor>[0];
+  },
+): BranchCommit[] | undefined {
+  const commits = branchCommits(
+    options.base,
+    options.head,
+    COMMIT_SEARCH_DEPTH,
+  );
+  if (!commits || commits.length === 0) return undefined;
+  return method === "merge"
+    ? [mergeCommitFor(options.pr, options.files), ...commits]
+    : commits;
 }

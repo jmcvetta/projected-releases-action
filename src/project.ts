@@ -26,7 +26,12 @@ import { commitSource } from "./commits.js";
 import type { CommitFiles } from "./commits.js";
 import { componentOfBranch } from "./conventional.js";
 import { ROOT_PACKAGE_PATH, splitFiles } from "./split.js";
-import type { HeadOverrides, ReadHeadFile, SyntheticCommit } from "./pr-view.js";
+import type {
+  BranchCommit,
+  HeadOverrides,
+  ReadHeadFile,
+  SyntheticCommit,
+} from "./pr-view.js";
 import { viewWithPullRequest } from "./pr-view.js";
 
 /** DEFAULT_CONFIG_FILE is release-please's config path. */
@@ -406,6 +411,12 @@ export interface ProjectOptions {
   /** commitFiles answers a commit's file list without the API, when the
    * caller has a checkout that can. See CommitFiles in commits.ts. */
   commitFiles?: CommitFiles;
+  /**
+   * branch are the commits merging puts on the target branch individually,
+   * newest first, for a repository that merges or rebases rather than
+   * squashes. Given none, the squash-merge of `commit` is what is modelled.
+   */
+  branch?: readonly BranchCommit[];
 }
 
 // A `Release-As:` note on a line of its own. The key is matched
@@ -581,6 +592,7 @@ export async function project(options: ProjectOptions): Promise<Projection> {
     options.commit,
     overrides,
     options.readHeadFile,
+    options.branch,
   );
   // Armed before the first pass and drained after each, so a boundary the
   // pull request resolves is not reported against the branch that resolved it.
@@ -624,15 +636,26 @@ export async function project(options: ProjectOptions): Promise<Projection> {
     packages.map((p) => p.path),
   );
 
+  // Where a `Release-As:` note could be written is whatever merging turns
+  // into a commit message: the pull request body under squash-merge, and each
+  // of the branch's own commit messages otherwise. Read separately rather
+  // than concatenated, because a trailer at the end of one commit is a
+  // trailer, and joining it to the next message would make it look like the
+  // mid-body note the warning below exists to catch.
+  const sources = options.branch?.length
+    ? options.branch.map((c) => c.message)
+    : [options.commit.body];
+  const notes = sources.map(releaseAsNotes);
   // A note was honoured when release-please returned the version it names.
-  // Any note in the body will do for that: honouring the wrong one is still
-  // not ignoring the ask, and reporting the note that was ignored is the
-  // whole point of the warning.
-  const notes = releaseAsNotes(options.commit.body);
-  const honoured = notes.seen.find((v) => projected.some((r) => r.version === v));
-  const asked = honoured ?? notes.meant;
+  // Any note will do for that: honouring the wrong one is still not ignoring
+  // the ask, and reporting the note that was ignored is the whole point of
+  // the warning.
+  const seen = notes.flatMap((n) => n.seen);
+  const meant = notes.map((n) => n.meant).find((v) => v !== undefined);
+  const honoured = seen.find((v) => projected.some((r) => r.version === v));
+  const asked = honoured ?? meant;
   const ignoredReleaseAs =
-    !honoured && notes.meant && touched.size > 0 ? notes.meant : undefined;
+    !honoured && meant && touched.size > 0 ? meant : undefined;
 
   return {
     packages,

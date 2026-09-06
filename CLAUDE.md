@@ -449,6 +449,79 @@ with no warning anywhere, which is the failure this repository dislikes most.
 Reading the walk once and serving its file lists locally removes the cost the
 cap was for.
 
+## What each merge method actually puts on the target branch
+
+Measured against real release-please, not read off the source
+(`src/merge-projection.test.ts`).
+
+| merge | commits release-please parses |
+|---|---|
+| squash | one: the title as subject, the description as body |
+| rebase | the branch's commits, unchanged |
+| merge | the branch's commits, **plus the merge commit** |
+
+**The merge commit is not a formality, and this is the surprise.** GitHub's
+default `merge_commit_title` is `MERGE_MESSAGE` — "Merge pull request #7 from
+acme/topic", which parses as nothing — but its default `merge_commit_message`
+is `PR_TITLE`. release-please's `splitMessages` splits a message on a blank
+line followed by a Conventional Commit type, so the title below that subject
+parses as a commit of its own. **A merge-commit repository releases from the
+title as well as from the branch.** A projection modelling only the branch
+would understate every such merge. `merge_commit_message: BLANK` removes it;
+`merge_commit_title: PR_TITLE` yields the title twice.
+
+**A `Release-As:` in the description does not survive a merge commit.** With
+`merge_commit_message: PR_BODY` the trailer does reach the merge commit, but
+"Merge pull request #7 from …" is not a Conventional Commit, so
+`parseCommits` throws on the whole message and the footer goes with it —
+silently, which is the same failure mode as a `---` rule below the trailer.
+Set `merge_commit_title: PR_TITLE` and it parses. The existing
+ignored-note warning catches it, because that warning is observed from the
+versions release-please returned rather than mirroring a placement rule.
+
+**Each commit is attributed by its own files, not the pull request's.**
+`mergeCommitsGraphQL` counts how many commits in a page name the same
+`mergeCommit.oid`; it serves the pull request's file list only where that
+count is 1, which is a squash-merge (and a single-commit rebase). A merge or a
+rebase leaves several commits pointing at one merge commit, so each is
+backfilled from the REST API with its own diff. That is why `BranchCommit`
+carries a file list per commit — one list for the whole pull request would
+bump every package the branch touched by the largest bump any of its commits
+asked for.
+
+A merge commit's own list is the whole branch's diff, which is what its diff
+against the first parent is.
+
+## Which merge the projection models, and why it is only one
+
+`projectedMethod` in `src/merge-method.ts`. Declared, it is what the caller
+declared; under `auto` it is **squash wherever squash is allowed**, and the
+method the repository does allow otherwise.
+
+That is the deliberate answer to the open question in issue #50, which offered
+the alternative of showing both outcomes. Nearly every repository allows
+squash and merge-commit both, so "both outcomes" means two tables, usually
+identical, on every pull request in almost every repository — the shape of a
+comment nobody reads, which is the same argument `mergeAdvisories` already
+makes for staying quiet about a merely-allowed merge commit. A repository that
+really merges the other way says so with `merge-method`.
+
+**Under merge and rebase the title is not an input, and two things follow.**
+`isMalformed` is not applied — a title that is not a Conventional Commit
+describes nothing that will ever be a commit message there, and withholding
+the projection over it withholds the answer to the question the repository
+does ask. And the lines that explain an empty answer must not name the
+title's type: `render`'s `subjects` is what switches them.
+
+**Reading the branch's commits is best-effort, and the fallback is loud.**
+`branchCommits` in git.ts is one `git log` over `<base>..<head>`, and needs
+`fetch-depth: 0` like everything else here. Without it the action pays the API
+one request per commit for the file lists — GitHub has no per-commit files
+endpoint for a pull request — capped at `API_BRANCH_COMMITS` (50). Past that,
+or with neither source available, the projection falls back to the squash
+answer and the advisory says **"does not describe this merge"** rather than
+letting the reader take it for one.
+
 ## Bundling breaks things no unit test sees
 
 Three times now, and always the same shape: a dependency's ordinary runtime

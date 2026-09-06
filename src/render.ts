@@ -36,6 +36,18 @@ export interface RenderOptions {
   title: string;
   /** malformed withholds the projection: see conventional.isMalformed. */
   malformed: boolean;
+  /**
+   * commitMessages are the messages of the commits merging will write, when
+   * those are what release-please will parse rather than the title — which is
+   * what a merge-commit or rebase merge does. Absent means the title is the
+   * input, which is squash-merge and the ordinary case.
+   *
+   * It exists because the lines that explain an empty answer name their
+   * input: "`chore:` produces no release" is a true and useful sentence about
+   * a squash-merge and a wrong one about a repository where the title is not
+   * a commit at all.
+   */
+  commitMessages?: readonly string[];
   /** releasePrs maps a component to its standing release pull request URL. */
   releasePrs?: Map<string, string>;
   /** headSha is the commit the projection describes. */
@@ -55,11 +67,36 @@ export interface RenderOptions {
   now?: Date;
 }
 
-/** visibleTitle reports whether the pull request title's type is one that
- * renders a changelog line, and so can open a release on its own. */
-function visibleTitle(options: RenderOptions): boolean {
+/**
+ * subjectsOf is every line release-please might read a Conventional Commit
+ * off: the title where the title is the input, and otherwise each paragraph
+ * of each commit message merging writes.
+ *
+ * Paragraphs rather than subjects alone, because release-please's
+ * `splitMessages` treats a paragraph beginning with a Conventional Commit
+ * type as a commit of its own — which is exactly how GitHub's default merge
+ * commit contributes the pull request title from below a subject that parses
+ * as nothing. Mirroring that rule is acceptable here for the reason split.ts
+ * gives for mirroring its own: it decides which sentence explains an empty
+ * answer, never a version. Getting it wrong costs a word.
+ */
+function subjectsOf(options: RenderOptions): readonly string[] {
+  if (!options.commitMessages) return [options.title];
+  return options.commitMessages.flatMap((message) =>
+    message.split(/\r?\n\s*\r?\n/).flatMap((paragraph) => {
+      const first = paragraph.trim().split("\n", 1)[0];
+      return first ? [first] : [];
+    }),
+  );
+}
+
+/** visibleInput reports whether anything release-please will parse carries a
+ * type that renders a changelog line, and so can open a release on its own. */
+function visibleInput(options: RenderOptions): boolean {
   const types = options.types ?? DEFAULT_TYPES;
-  return types.visible.has(titleType(options.title) ?? "");
+  return subjectsOf(options).some((subject) =>
+    types.visible.has(titleType(subject) ?? ""),
+  );
 }
 
 /**
@@ -468,9 +505,12 @@ function verdict(
     // though it moves no number: its changelog line ships in that version.
     // Saying only that the version does not move reads as contributing
     // nothing, which for a `feat:` is wrong.
-    return visibleTitle(options)
-      ? `No version change — \`${type}:\` adds only a changelog line.`
-      : `No version change — \`${type}:\` adds nothing to the release already coming.`;
+    const subject = options.commitMessages
+      ? "the branch's commits add"
+      : `\`${type}:\` adds`;
+    return visibleInput(options)
+      ? `No version change — ${subject} only a changelog line.`
+      : `No version change — ${subject} nothing to the release already coming.`;
   }
   return none(projection, options, touchedPackages);
 }
@@ -579,10 +619,13 @@ function none(
   // A visible type reaching here is not the ordinary case -- release-please
   // attributes files itself, so it can project nothing for a component this
   // preview counts as touched (a path the package excludes, say). Whatever
-  // the cause, the title is not one that releases nothing and must not be
+  // the cause, the input is not one that releases nothing and must not be
   // reported as one.
-  return visibleTitle(options)
-    ? "None — release-please projects no release for the packages touched."
+  if (visibleInput(options)) {
+    return "None — release-please projects no release for the packages touched.";
+  }
+  return options.commitMessages
+    ? "None — no commit on this branch produces a release."
     : `None — \`${type}:\` produces no release.`;
 }
 

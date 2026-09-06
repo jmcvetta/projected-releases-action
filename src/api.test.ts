@@ -142,6 +142,8 @@ describe("Client", () => {
       allowMerge: true,
       allowRebase: true,
       squashTitle: "PR_TITLE",
+      mergeTitle: "MERGE_MESSAGE",
+      mergeMessage: "PR_TITLE",
     });
   });
 
@@ -153,6 +155,8 @@ describe("Client", () => {
           allow_merge_commit: true,
           allow_rebase_merge: false,
           squash_merge_commit_title: "COMMIT_OR_PR_TITLE",
+          merge_commit_title: "PR_TITLE",
+          merge_commit_message: "PR_BODY",
         },
       },
     ]);
@@ -161,7 +165,52 @@ describe("Client", () => {
       allowMerge: true,
       allowRebase: false,
       squashTitle: "COMMIT_OR_PR_TITLE",
+      mergeTitle: "PR_TITLE",
+      mergeMessage: "PR_BODY",
     });
+  });
+
+  it("reads the branch's commits with one file request each", async () => {
+    const { client: c, calls } = client([
+      {
+        body: [
+          { sha: "aaa", commit: { message: "feat: one" } },
+          { sha: "bbb", commit: { message: "fix: two" } },
+        ],
+      },
+      { body: { files: [{ filename: "api/one.ts" }] } },
+      { body: { files: [{ filename: "ui/two.ts" }] } },
+    ]);
+    // Newest first, which is the order mergeCommitIterator yields; GitHub
+    // lists them oldest first.
+    expect(await c.pullRequestCommits(7, 50)).toEqual([
+      { sha: "bbb", message: "fix: two", files: ["ui/two.ts"] },
+      { sha: "aaa", message: "feat: one", files: ["api/one.ts"] },
+    ]);
+    expect(calls.map((call) => call.url.replace(/^.*api\.github\.com/, ""))).toEqual([
+      "/repos/acme/widgets/pulls/7/commits?per_page=100&page=1",
+      "/repos/acme/widgets/commits/aaa",
+      "/repos/acme/widgets/commits/bbb",
+    ]);
+  });
+
+  it("declines a branch longer than the caller will pay for", async () => {
+    // One request per commit for the file lists, so the length is the price.
+    const { client: c, calls } = client([
+      {
+        body: [
+          { sha: "aaa", commit: { message: "feat: one" } },
+          { sha: "bbb", commit: { message: "fix: two" } },
+        ],
+      },
+    ]);
+    expect(await c.pullRequestCommits(7, 1)).toBeUndefined();
+    expect(calls).toHaveLength(1);
+  });
+
+  it("declines a pull request with no commits listed", async () => {
+    const { client: c } = client([{ body: [] }]);
+    expect(await c.pullRequestCommits(7, 50)).toBeUndefined();
   });
 
   it("sends a JSON body only when there is one", async () => {

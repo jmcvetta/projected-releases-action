@@ -10,6 +10,8 @@
  * there, and each call is a URL and a shape rather than a wrapper to learn.
  */
 
+import type { BranchCommit } from "./pr-view.js";
+
 /** GITHUB_API is the REST root, overridable for GitHub Enterprise Server. */
 export const GITHUB_API = "https://api.github.com";
 
@@ -68,12 +70,22 @@ export interface OpenPullRequest {
  * uses the pull request title as the squashed subject, while
  * `COMMIT_OR_PR_TITLE` uses the branch's single commit's subject when there
  * is exactly one commit, and the pull request title otherwise.
+ *
+ * `mergeTitle` and `mergeMessage` are the same two settings for the merge
+ * commit a merge-commit merge writes above the branch's own commits:
+ * `merge_commit_title` is `MERGE_MESSAGE` (GitHub's "Merge pull request #N
+ * from …") or `PR_TITLE`, and `merge_commit_message` is `PR_TITLE`,
+ * `PR_BODY` or `BLANK`. They decide whether that commit carries a
+ * Conventional Commit at all, which is not a detail: see
+ * `mergeCommitMessage` in merge-method.ts.
  */
 export interface RepositoryMergeSettings {
   allowSquash: boolean;
   allowMerge: boolean;
   allowRebase: boolean;
   squashTitle: string;
+  mergeTitle: string;
+  mergeMessage: string;
 }
 
 /** Client talks to one repository. */
@@ -144,7 +156,67 @@ export class Client {
       allowMerge: raw["allow_merge_commit"] !== false,
       allowRebase: raw["allow_rebase_merge"] !== false,
       squashTitle: String(raw["squash_merge_commit_title"] ?? "PR_TITLE"),
+      // GitHub's own defaults for a repository that has never been told
+      // otherwise, which the REST response omits rather than spells.
+      mergeTitle: String(raw["merge_commit_title"] ?? "MERGE_MESSAGE"),
+      mergeMessage: String(raw["merge_commit_message"] ?? "PR_TITLE"),
     };
+  }
+
+  /**
+   * pullRequestCommits lists the commits on the pull request's branch, newest
+   * first, each with the files it changes.
+   *
+   * The fallback for a checkout `branchCommits` cannot read, and it is
+   * expensive in a way the rest of this file is not: GitHub has no per-commit
+   * files endpoint for a pull request, so the file lists cost one request per
+   * commit. `limit` is what keeps that from being paid quietly — over it, the
+   * answer is undefined and the caller says it could not model the merge
+   * rather than spending two hundred requests to.
+   *
+   * Newest first because that is the order `mergeCommitIterator` yields and
+   * the order the projection wants; GitHub lists them oldest first.
+   */
+  async pullRequestCommits(
+    number: number,
+    limit: number,
+  ): Promise<BranchCommit[] | undefined> {
+    const listed: { sha: string; message: string }[] = [];
+    // GitHub caps this endpoint at 250 commits, so three pages is all there
+    // is; a branch longer than that is past `limit` regardless.
+    for (let page = 1; page <= 3; page++) {
+      const batch = await this.request<
+        { sha?: string; commit?: { message?: string } }[]
+      >("GET", this.repoPath(`/pulls/${number}/commits?per_page=100&page=${page}`));
+      for (const commit of batch) {
+        if (commit.sha) {
+          listed.push({ sha: commit.sha, message: commit.commit?.message ?? "" });
+        }
+      }
+      if (batch.length < 100) break;
+    }
+    if (listed.length === 0 || listed.length > limit) return undefined;
+
+    const commits: BranchCommit[] = [];
+    for (const commit of listed) {
+      commits.push({ ...commit, files: await this.commitFiles(commit.sha) });
+    }
+    return commits.reverse();
+  }
+
+  /**
+   * commitFiles lists what one commit changes, which for a merge commit is
+   * its diff against the first parent — the same diff `git log
+   * --diff-merges=first-parent` reports.
+   */
+  async commitFiles(sha: string): Promise<string[]> {
+    const raw = await this.request<{ files?: { filename?: string }[] }>(
+      "GET",
+      this.repoPath(`/commits/${encodeURIComponent(sha)}`),
+    );
+    return (raw.files ?? []).flatMap((file) =>
+      file.filename ? [file.filename] : [],
+    );
   }
 
   /**

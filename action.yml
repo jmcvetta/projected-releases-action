@@ -185,10 +185,20 @@ inputs:
 
   merge-method:
     description: >-
-      How this repository merges pull requests. `auto` (default) reads the
-      repository's settings and notes it in the comment when they will not
-      produce the commit the projection assumes. `squash`, `merge` and
-      `rebase` assert one without the read.
+      How this repository merges pull requests, which decides what the
+      projection models. `auto` (default) reads the repository's settings:
+      squash-merge wherever it is allowed, and the method the repository does
+      allow otherwise. `squash` and `rebase` assert one without the read;
+      `merge` asserts the method but still reads `merge_commit_title` and
+      `merge_commit_message`, which decide what the merge commit says.
+
+      Under `merge` and `rebase` the pull request title is not what
+      release-please parses -- the branch's own commits are, plus the merge
+      commit under `merge` -- so the title's type decides nothing and
+      `malformed-title` is always false. Those commits are read from the
+      checkout as `<diff-base>..<head>`, which needs `fetch-depth: 0`, and
+      from the API otherwise at one request per commit for their files. A
+      branch too long for that is left unmodelled and the comment says so.
     required: false
     default: auto
   link-release-prs:
@@ -243,7 +253,9 @@ outputs:
   malformed-title:
     description: >-
       `true` when the projection was withheld because the title is not a
-      Conventional Commit the changelog recognizes.
+      Conventional Commit the changelog recognizes. Always `false` under
+      `merge-method: merge` or `rebase`, where the title is not what
+      release-please parses.
   recognized-types:
     description: >-
       The commit types this run resolved, comma-separated. Pin a PR-title

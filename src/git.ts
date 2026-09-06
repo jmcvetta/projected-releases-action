@@ -1,12 +1,17 @@
 /**
- * git reads the pull request's changed files out of the checkout.
+ * git reads out of the checkout what the API would otherwise be asked for:
+ * the pull request's changed files, the file list of each commit
+ * release-please walks, and — for a repository that does not squash — the
+ * commits merging will put on the target branch.
  *
- * The workflow checks the repository out with full history, so this is a
- * local read: cheaper than the API, and the same list release-please would
- * see for the squashed commit.
+ * The workflow checks the repository out with full history, so these are
+ * local reads. Each is cheaper than its API counterpart by an order of
+ * magnitude, and the last of the three has no cheap counterpart at all:
+ * GitHub serves no per-commit file list for a pull request.
  */
 
 import { execFileSync } from "node:child_process";
+import type { BranchCommit } from "./pr-view.js";
 
 /** Runner runs a git command and returns its stdout. Injected for tests. */
 export type Runner = (args: string[]) => string;
@@ -70,6 +75,72 @@ export function commitFileIndex(
     if (index && index.size > 0) return index;
   }
   return undefined;
+}
+
+/**
+ * branchCommits reads the commits merging would put on the target branch
+ * individually, which is what a merge-commit or a rebase merge does.
+ *
+ * `<base>..<head>` rather than a diff from the merge base: the set that lands
+ * is exactly what is reachable from the head and not from the base, which is
+ * also what leaves out anything the branch merged *in* from the base. Newest
+ * first, because that is the order `mergeCommitIterator` yields and the order
+ * the changelog comes out in.
+ *
+ * The message and the file list are read in two passes over the same range.
+ * `-z` is what makes the first one safe: it terminates each entry with a NUL,
+ * which a commit message cannot contain, so a message holding anything at all
+ * — blank lines, a line that looks like a sha — still parses.
+ *
+ * Returns undefined when the checkout cannot answer, for any of the reasons
+ * `commitFileIndex` cannot: no git, no such ref, a shallow clone, a quoted
+ * path. There is no half answer here. A branch commit served without its
+ * files is attributed to no package and so releases nothing, which is the
+ * quiet wrong answer this action exists to avoid; the caller falls back to
+ * the API, or to saying it could not model the merge.
+ */
+export function branchCommits(
+  base: string,
+  head: string,
+  depth: number,
+  run: Runner = gitRunner,
+): BranchCommit[] | undefined {
+  try {
+    if (run(["rev-parse", "--is-shallow-repository"]).trim() === "true") {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  const range = `${base}..${head}`;
+  const files = indexOf(range, depth, run);
+  if (!files) return undefined;
+
+  let out: string;
+  try {
+    out = run(["log", "-z", `--max-count=${depth}`, "--format=%H%n%B", range]);
+  } catch {
+    return undefined;
+  }
+
+  const commits: BranchCommit[] = [];
+  for (const entry of out.split("\0")) {
+    if (!entry.trim()) continue;
+    const newline = entry.indexOf("\n");
+    const sha = (newline === -1 ? entry : entry.slice(0, newline)).trim();
+    if (!sha) continue;
+    // A sha the file index does not hold means the two passes disagree about
+    // the range, and an empty list would be served confidently. See above.
+    const own = files.get(sha);
+    if (!own) return undefined;
+    commits.push({
+      sha,
+      message: newline === -1 ? "" : entry.slice(newline + 1).trim(),
+      files: own,
+    });
+  }
+  return commits;
 }
 
 /**
