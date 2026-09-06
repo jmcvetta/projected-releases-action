@@ -316,6 +316,18 @@ describe("what the comparison declines to do", () => {
     expect(result).toEqual({ decided: false, notes: [] });
   });
 
+  it("says nothing when the caller's target branch is an expression", () => {
+    // The step may be releasing some other branch entirely, so nothing it
+    // passes is known to describe what merging this pull request cuts.
+    const result = compare({
+      "release.yml": step({
+        "release-type": "python",
+        "target-branch": "${{ vars.RELEASE_BRANCH }}",
+      }),
+    });
+    expect(result).toEqual({ decided: false, notes: [] });
+  });
+
   it("reads nothing at all when told off", () => {
     const result = compare(
       { "release.yml": step({ "release-type": "python" }) },
@@ -409,6 +421,13 @@ describe("governing", () => {
     unresolved: new Set<string>(),
   });
 
+  /** unknown is a caller whose `target-branch` only the runner can resolve. */
+  const unknown = () => ({
+    file: "release.yml",
+    given: new Map<string, string>(),
+    unresolved: new Set(["target-branch"]),
+  });
+
   it("takes a step with no target branch as the one releasing this branch", () => {
     expect(governing([caller()], "master")?.file).toBe("release.yml");
   });
@@ -419,5 +438,16 @@ describe("governing", () => {
 
   it("takes none when there is nothing to choose between", () => {
     expect(governing([caller(), caller()], "master")).toBeUndefined();
+  });
+
+  it("takes none when the only caller's target branch is an expression", () => {
+    // Unset means the default branch; an expression means some branch this
+    // file does not name, and reading the second as the first would compare
+    // a `master` pull request against the maintenance branch's step.
+    expect(governing([unknown()], "master")).toBeUndefined();
+  });
+
+  it("takes none when an expression could be the second candidate", () => {
+    expect(governing([caller(), unknown()], "master")).toBeUndefined();
   });
 });

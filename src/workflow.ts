@@ -150,16 +150,25 @@ export function compareReleaseWorkflow(given: Given): Comparison {
  * over after that filter is a repository whose release configuration this
  * cannot identify, and identifying it wrongly would compare a pull request
  * against a configuration that has nothing to do with it.
+ *
+ * A `target-branch` written as an expression is not the same as one left
+ * unset, and reading it as one would take the maintenance-branch step for the
+ * step releasing `master`. It could name any branch, so it counts as a
+ * candidate — which is enough to make a second caller ambiguous — and being
+ * the only candidate does not make it the right one either.
  */
 export function governing(
   callers: readonly Caller[],
   base: string,
 ): Caller | undefined {
   const plausible = callers.filter((caller) => {
+    if (caller.unresolved.has("target-branch")) return true;
     const target = caller.given.get("target-branch");
     return target === undefined || target === "" || target === base;
   });
-  return plausible.length === 1 ? plausible[0] : undefined;
+  if (plausible.length !== 1) return undefined;
+  const only = plausible[0];
+  return only?.unresolved.has("target-branch") ? undefined : only;
 }
 
 /** workflowFiles lists the workflows in the checkout, or nothing when there

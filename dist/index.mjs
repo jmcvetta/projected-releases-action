@@ -62532,10 +62532,13 @@ function compareReleaseWorkflow(given) {
 }
 function governing(callers, base) {
   const plausible = callers.filter((caller) => {
+    if (caller.unresolved.has("target-branch")) return true;
     const target = caller.given.get("target-branch");
     return target === void 0 || target === "" || target === base;
   });
-  return plausible.length === 1 ? plausible[0] : void 0;
+  if (plausible.length !== 1) return void 0;
+  const only = plausible[0];
+  return only?.unresolved.has("target-branch") ? void 0 : only;
 }
 function workflowFiles(root) {
   const dir = resolve(root, WORKFLOW_DIR);
