@@ -12,7 +12,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -154,8 +160,10 @@ async function start(over: Partial<FakeRepo> = {}) {
 const tmp = () => mkdtempSync(join(tmpdir(), "projected-releases-"));
 
 /** environment is the ordinary invocation: everything through inputs, the
- * fake for both URLs, and the changed files from the API so nothing here
- * depends on the checkout this suite happens to run in. */
+ * fake for both URLs, the changed files from the API and no release workflow
+ * read, so nothing here depends on the checkout this suite happens to run in
+ * -- which is this repository, whose own release workflow `auto` would find.
+ * The comparison has its own test below, against a checkout written for it. */
 function environment(
   server: FakeGitHub,
   over: Record<string, string> = {},
@@ -173,6 +181,7 @@ function environment(
     // The endpoint form, as a runner supplies it. run.ts normalizes it.
     "INPUT_GRAPHQL-URL": `${server.url}/graphql`,
     "INPUT_CHANGED-FILES": "api",
+    "INPUT_RELEASE-WORKFLOW": "off",
     "INPUT_OUTPUT-FILE": join(dir, "projected-releases.md"),
     GITHUB_OUTPUT: join(dir, "outputs"),
     GITHUB_STEP_SUMMARY: join(dir, "summary"),
@@ -359,6 +368,33 @@ describe("action, when a read it can do without fails", () => {
     expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain(
       "does not describe this merge",
     );
+  });
+
+  it("compares its inputs with the release workflow, in the comment and the log", async () => {
+    // The drift this exists for: the release workflow bumps every release as
+    // a patch and the projection was not told, so it reports the minor a
+    // default repository would get. Through the comment and the run's
+    // annotations both, since a note only one of them carries is one half the
+    // readers will miss.
+    const root = tmp();
+    mkdirSync(join(root, ".github", "workflows"), { recursive: true });
+    writeFileSync(
+      join(root, ".github", "workflows", "release.yml"),
+      "jobs:\n  release:\n    steps:\n" +
+        "      - uses: googleapis/release-please-action@v5\n" +
+        "        with:\n          release-type: node\n" +
+        "          versioning-strategy: always-bump-patch\n",
+    );
+    const server = await start();
+    const env = environment(server, {
+      "INPUT_REPO-ROOT": root,
+      "INPUT_RELEASE-WORKFLOW": "auto",
+    });
+    await action(env);
+
+    const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
+    expect(body).toContain("`versioning-strategy: always-bump-patch`");
+    expect(annotations()).toContain("::warning::`.github/workflows/release.yml`");
   });
 
   it("refuses a merge method that is not one", async () => {
