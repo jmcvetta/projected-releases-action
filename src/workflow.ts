@@ -123,10 +123,17 @@ export interface Given {
  */
 export function compareReleaseWorkflow(given: Given): Comparison {
   const setting = (given.workflow ?? AUTO).trim() || AUTO;
-  if (setting === OFF) return { decided: false, notes: [] };
+  // The two keywords are matched case-insensitively, as `include-component
+  // -in-tag` and the rest of this action's enumerated inputs are: `Off` is
+  // plainly someone turning the check off, and the alternative is not a
+  // stricter reading but a worse one, since anything that is not a keyword
+  // is a path and a missing path throws. The path itself keeps its case,
+  // which a filesystem may well care about.
+  const keyword = setting.toLowerCase();
+  if (keyword === OFF) return { decided: false, notes: [] };
 
   const files =
-    setting === AUTO ? workflowFiles(given.root) : [namedWorkflow(given.root, setting)];
+    keyword === AUTO ? workflowFiles(given.root) : [namedWorkflow(given.root, setting)];
   const callers = files.flatMap((file) => callersIn(given.root, file));
   const caller = governing(callers, given.base);
   // An expression where `release-type` goes is the mode itself left to the

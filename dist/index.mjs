@@ -62521,8 +62521,9 @@ var ACTION = /^[\w.-]+\/release-please-action(?:\/[^@\s]*)?(?:@\S*)?$/;
 var EXPRESSION = /\$\{\{/;
 function compareReleaseWorkflow(given) {
   const setting = (given.workflow ?? AUTO).trim() || AUTO;
-  if (setting === OFF) return { decided: false, notes: [] };
-  const files = setting === AUTO ? workflowFiles(given.root) : [namedWorkflow(given.root, setting)];
+  const keyword = setting.toLowerCase();
+  if (keyword === OFF) return { decided: false, notes: [] };
+  const files = keyword === AUTO ? workflowFiles(given.root) : [namedWorkflow(given.root, setting)];
   const callers = files.flatMap((file) => callersIn(given.root, file));
   const caller = governing(callers, given.base);
   if (!caller || caller.unresolved.has("release-type")) {

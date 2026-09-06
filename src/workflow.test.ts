@@ -335,6 +335,20 @@ describe("what the comparison declines to do", () => {
     );
     expect(result).toEqual({ decided: false, notes: [] });
   });
+
+  it("reads the keywords whatever their case", () => {
+    // Anything that is not one of the two keywords is a path, and a path
+    // that is not there throws -- so a miscased `Off` matched literally
+    // fails the whole run rather than turning the check off.
+    const workflows = { "release.yml": step({ "release-type": "python" }) };
+    expect(compare(workflows, { workflow: "Off" })).toEqual({
+      decided: false,
+      notes: [],
+    });
+    expect(compare(workflows, { workflow: "AUTO" }).notes[0]).toContain(
+      "`release-type: python`",
+    );
+  });
 });
 
 describe("finding the caller", () => {
