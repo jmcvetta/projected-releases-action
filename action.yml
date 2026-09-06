@@ -70,9 +70,16 @@ inputs:
     required: false
     default: auto
   head:
-    description: Local git ref of the pull request head, for the changed-file diff.
+    description: >-
+      Local git ref of the pull request head. Defaults to `HEAD` for the
+      changed-file diff, and to `head-sha` where the checkout holds it for the
+      branch's commits under a merge or rebase projection: on a
+      `pull_request` event `HEAD` is `refs/pull/N/merge`, whose diff is the
+      pull request's but whose commit is not one merging writes. Set it to
+      override both.
     required: false
-    default: HEAD
+    default: ""
+
   diff-base:
     description: >-
       Local git ref the checkout is read through: the changed-file diff runs

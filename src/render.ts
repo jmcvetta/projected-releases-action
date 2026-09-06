@@ -726,14 +726,25 @@ function warn(
     );
   }
   if (projection.ignoredReleaseAs) {
-    warnings.push(
-      `- \`Release-As: ${projection.ignoredReleaseAs}\` was **ignored** —` +
-        " release-please returned a different version. A note only counts" +
+    // Which explanation is the right one follows the same fact the rest of
+    // the comment follows: whether the title and description are what
+    // release-please parses. Under a merge or a rebase the description
+    // reaches a commit message only where the merge commit is configured to
+    // carry it, so "check the merge box" would send the reader to a box that
+    // does not decide it.
+    const why = options.commitMessages
+      ? " release-please returned a different version. This repository does" +
+        " not squash, so the description is not a commit message: it reaches" +
+        " release-please only where the merge commit is configured to carry" +
+        " it, and a merge subject that is not a Conventional Commit voids the" +
+        " whole message anyway. Put the note in a commit on the branch, at" +
+        " the end of its message, where it parses as a git trailer."
+      : " release-please returned a different version. A note only counts" +
         " when it parses as a git trailer, so no non-trailer text may follow" +
         " it: a `---` rule or an attribution line below it voids it silently." +
         " Check the merge box too, which is prefilled from the description" +
-        " but editable.",
-    );
+        " but editable.";
+    warnings.push(`- \`Release-As: ${projection.ignoredReleaseAs}\` was **ignored** —${why}`);
   }
   return warnings;
 }

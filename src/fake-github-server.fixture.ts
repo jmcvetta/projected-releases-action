@@ -212,9 +212,16 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
       }
       const prCommits = PR_COMMITS.exec(path);
       if (prCommits) {
+        // Paged as GitHub pages it, because how many pages the action asks
+        // for is part of what it costs a repository: a caller that has
+        // already decided a branch is too long to model must stop asking.
+        const query = new URLSearchParams(url.split("?")[1] ?? "");
+        const perPage = Number(query.get("per_page") ?? "30");
+        const page = Number(query.get("page") ?? "1");
+        const all = repo.prCommits?.[Number(prCommits[1])] ?? [];
         return send(
           200,
-          (repo.prCommits?.[Number(prCommits[1])] ?? []).map((commit) => ({
+          all.slice((page - 1) * perPage, page * perPage).map((commit) => ({
             sha: commit.sha,
             commit: { message: commit.message },
           })),

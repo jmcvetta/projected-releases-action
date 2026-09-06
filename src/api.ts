@@ -193,9 +193,13 @@ export class Client {
           listed.push({ sha: commit.sha, message: commit.commit?.message ?? "" });
         }
       }
+      // Checked per page rather than at the end: a branch past the cap is
+      // declined whatever the rest of it holds, and the pages after the one
+      // that passed it are requests spent on an answer already given up on.
+      if (listed.length > limit) return undefined;
       if (batch.length < 100) break;
     }
-    if (listed.length === 0 || listed.length > limit) return undefined;
+    if (listed.length === 0) return undefined;
 
     const commits: BranchCommit[] = [];
     for (const commit of listed) {

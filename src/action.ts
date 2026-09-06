@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { Client, ApiError } from "./api.js";
 import type { RepositoryMergeSettings } from "./api.js";
 import { DEFAULT_HEADER, stick } from "./comment.js";
-import { branchCommits, changedFiles } from "./git.js";
+import { branchCommits, changedFiles, hasCommit } from "./git.js";
 import {
   isMergeMethod,
   mergeAdvisories,
@@ -126,6 +126,7 @@ export async function action(env: Env = process.env): Promise<void> {
       : await branchInput(client, env, merge.method, {
           number,
           base,
+          headSha,
           files,
           settings: merge.settings,
           pr: {
@@ -302,9 +303,35 @@ const API_BRANCH_COMMITS = 50;
 interface BranchInput {
   number: number;
   base: string;
+  headSha: string;
   files: string[];
   settings?: RepositoryMergeSettings | undefined;
   pr: Parameters<typeof mergeCommitFor>[0];
+}
+
+/**
+ * branchHead is the local ref the branch's commits are read from, which is
+ * not the ref the changed-file diff runs against.
+ *
+ * On a `pull_request` event `actions/checkout` leaves `HEAD` at
+ * `refs/pull/N/merge`: GitHub's ephemeral merge of the branch into the base.
+ * Its *diff* is the pull request's, which is why the file list reads it. Its
+ * *commit* is one no merge and no rebase ever writes, and reading commits
+ * from `HEAD` puts it at the front of the projection carrying the whole
+ * branch's files. So the head sha the event names is preferred wherever the
+ * checkout holds it -- it is the branch tip itself, and it is a parent of
+ * that merge commit, so a full checkout of either ref resolves it.
+ *
+ * An explicit `head` is still obeyed: a caller that named a ref knows what it
+ * checked out. `HEAD` remains the fallback for a checkout that holds no such
+ * sha, which is the case `main.ts` is run in by hand.
+ */
+export function branchHead(
+  env: Env,
+  headSha: string,
+  has: (ref: string) => boolean = hasCommit,
+): string {
+  return input("head", env) || (has(headSha) ? headSha : "HEAD");
 }
 
 /**
@@ -328,9 +355,14 @@ async function branchInput(
   if (source !== "api") {
     commits = branchCommits(
       inputOr("diff-base", `origin/${pull.base}`, env),
-      inputOr("head", "HEAD", env),
+      branchHead(env, pull.headSha),
       COMMIT_SEARCH_DEPTH,
     );
+    // An empty range is not an answer either: base and head that produce no
+    // commits are not the ones merging will write, and treating the empty
+    // array as a reading skips the fallback and blames a checkout that read
+    // fine.
+    if (commits?.length === 0) commits = undefined;
   }
   if (!commits && source !== "git") {
     try {

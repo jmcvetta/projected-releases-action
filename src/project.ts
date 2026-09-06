@@ -642,8 +642,17 @@ export async function project(options: ProjectOptions): Promise<Projection> {
   // than concatenated, because a trailer at the end of one commit is a
   // trailer, and joining it to the next message would make it look like the
   // mid-body note the warning below exists to catch.
+  //
+  // The body is read under a merge or a rebase as well, and it is the case
+  // that most needs reading: there the description reaches a commit message
+  // only where the merge commit is configured to carry it, so under GitHub's
+  // default `merge_commit_message: PR_TITLE` a note written there asks for a
+  // version nothing will ever parse. Unread, that is silent -- the same
+  // silence as the placement rule, arrived at a different way. Read, it is a
+  // note release-please did not honour, which is what the warning says. It
+  // goes last so a trailer on a real commit is still the one `asked` names.
   const sources = options.branch?.length
-    ? options.branch.map((c) => c.message)
+    ? [...options.branch.map((c) => c.message), options.commit.body]
     : [options.commit.body];
   const notes = sources.map(releaseAsNotes);
   // A note was honoured when release-please returned the version it names.

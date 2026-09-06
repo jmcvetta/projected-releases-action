@@ -61449,9 +61449,10 @@ var Client = class {
           listed.push({ sha: commit.sha, message: commit.commit?.message ?? "" });
         }
       }
+      if (listed.length > limit) return void 0;
       if (batch.length < 100) break;
     }
-    if (listed.length === 0 || listed.length > limit) return void 0;
+    if (listed.length === 0) return void 0;
     const commits = [];
     for (const commit of listed) {
       commits.push({ ...commit, files: await this.commitFiles(commit.sha) });
@@ -61599,11 +61600,11 @@ function branchCommits(base, head, depth, run = gitRunner) {
     return void 0;
   }
   const range = `${base}..${head}`;
-  const files = indexOf(range, depth, run);
+  const files = indexOf(range, depth + 1, run);
   if (!files) return void 0;
   let out;
   try {
-    out = run(["log", "-z", `--max-count=${depth}`, "--format=%H%n%B", range]);
+    out = run(["log", "-z", `--max-count=${depth + 1}`, "--format=%H%n%B", range]);
   } catch {
     return void 0;
   }
@@ -61620,8 +61621,18 @@ function branchCommits(base, head, depth, run = gitRunner) {
       message: newline === -1 ? "" : entry.slice(newline + 1).trim(),
       files: own
     });
+    if (commits.length > depth) return void 0;
   }
   return commits;
+}
+function hasCommit(ref, run = gitRunner) {
+  if (!ref) return false;
+  try {
+    run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function indexOf(ref, depth, run) {
   let out;
@@ -62258,7 +62269,7 @@ async function project(options) {
     options.commit.files,
     packages.map((p) => p.path)
   );
-  const sources = options.branch?.length ? options.branch.map((c) => c.message) : [options.commit.body];
+  const sources = options.branch?.length ? [...options.branch.map((c) => c.message), options.commit.body] : [options.commit.body];
   const notes2 = sources.map(releaseAsNotes);
   const seen2 = notes2.flatMap((n) => n.seen);
   const meant = notes2.map((n) => n.meant).find((v) => v !== void 0);
@@ -62596,9 +62607,8 @@ function warn(projection, options, moved, components) {
     );
   }
   if (projection.ignoredReleaseAs) {
-    warnings.push(
-      `- \`Release-As: ${projection.ignoredReleaseAs}\` was **ignored** \u2014 release-please returned a different version. A note only counts when it parses as a git trailer, so no non-trailer text may follow it: a \`---\` rule or an attribution line below it voids it silently. Check the merge box too, which is prefilled from the description but editable.`
-    );
+    const why = options.commitMessages ? " release-please returned a different version. This repository does not squash, so the description is not a commit message: it reaches release-please only where the merge commit is configured to carry it, and a merge subject that is not a Conventional Commit voids the whole message anyway. Put the note in a commit on the branch, at the end of its message, where it parses as a git trailer." : " release-please returned a different version. A note only counts when it parses as a git trailer, so no non-trailer text may follow it: a `---` rule or an attribution line below it voids it silently. Check the merge box too, which is prefilled from the description but editable.";
+    warnings.push(`- \`Release-As: ${projection.ignoredReleaseAs}\` was **ignored** \u2014${why}`);
   }
   return warnings;
 }
@@ -63086,6 +63096,7 @@ async function action(env = process.env) {
   const branch = merge.method === "squash" ? void 0 : await branchInput(client, env, merge.method, {
     number,
     base,
+    headSha,
     files,
     settings: merge.settings,
     pr: {
@@ -63190,15 +63201,19 @@ async function mergePlan(client, env) {
   }
 }
 var API_BRANCH_COMMITS = 50;
+function branchHead(env, headSha, has = hasCommit) {
+  return input("head", env) || (has(headSha) ? headSha : "HEAD");
+}
 async function branchInput(client, env, method, pull) {
   const source = inputOr("changed-files", "auto", env);
   let commits;
   if (source !== "api") {
     commits = branchCommits(
       inputOr("diff-base", `origin/${pull.base}`, env),
-      inputOr("head", "HEAD", env),
+      branchHead(env, pull.headSha),
       COMMIT_SEARCH_DEPTH
     );
+    if (commits?.length === 0) commits = void 0;
   }
   if (!commits && source !== "git") {
     try {

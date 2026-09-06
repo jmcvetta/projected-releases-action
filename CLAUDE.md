@@ -515,6 +515,17 @@ Set `merge_commit_title: PR_TITLE` and it parses. The existing
 ignored-note warning catches it, because that warning is observed from the
 versions release-please returned rather than mirroring a placement rule.
 
+**Under the default settings it does not reach a commit at all, and that is
+the case the warning nearly missed.** `merge_commit_message: PR_TITLE` is
+GitHub's default and a rebase carries nothing of the description ever, so a
+note written there asks for a version nothing will parse — no version, and,
+while `project.ts` read notes only from the branch's commits, no warning
+either. The body is therefore read as a note source under every merge method,
+last, so a trailer on a real commit is still the one `releaseAs` names. The
+explanation the comment prints has to follow the method too: "check the merge
+box" is the right sentence for a squash and sends the reader to a box that
+decides nothing under a rebase.
+
 **Each commit is attributed by its own files, not the pull request's.**
 `mergeCommitsGraphQL` counts how many commits in a page name the same
 `mergeCommit.oid`; it serves the pull request's file list only where that
@@ -557,6 +568,27 @@ endpoint for a pull request — capped at `API_BRANCH_COMMITS` (50). Past that,
 or with neither source available, the projection falls back to the squash
 answer and the advisory says **"does not describe this merge"** rather than
 letting the reader take it for one.
+
+**`<head>` is not `HEAD`, and this is the trap.** On a `pull_request` event
+`actions/checkout` leaves `HEAD` at `refs/pull/N/merge` — GitHub's ephemeral
+merge of the branch into the base. Its *diff* is the pull request's, which is
+why the changed-file list reads it happily; its *commit* is one no merge and
+no rebase ever writes, and it carries the whole branch's files. Reading
+commits from `HEAD` puts it at the front of the projection, where it is inert
+only for as long as its subject fails to parse — a `BEGIN_COMMIT_OVERRIDE`
+body substitutes a parsing message straight into it. `branchHead` in
+action.ts prefers the event's head sha wherever the checkout holds it, which
+it does under either ref, since the branch tip is a parent of that merge
+commit. The `head` input's action.yml default had to become `""` for that:
+the runner supplies a declared default, so `HEAD` written there is
+indistinguishable from a caller asking for `HEAD`.
+
+**Every decline is loud, including the cheap path's.** `--max-count` would
+otherwise hand back the newest `depth` commits and look like the whole branch,
+so `branchCommits` reads one commit past the cap and returns undefined when it
+gets it. The API path declines a long branch out loud; a local read that
+truncated in silence would make the cheap path the quiet one, which is the
+shape of failure this repository dislikes most.
 
 ## Bundling breaks things no unit test sees
 

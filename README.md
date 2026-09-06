@@ -121,12 +121,23 @@ releases from the title *and* from the branch. The action reads
 `merge_commit_title` and `merge_commit_message` from the repository so the
 projection matches whichever way they are set.
 
+A `Release-As:` note is worth one more sentence. Under a squash-merge the
+description becomes the commit body, so a note there reaches release-please.
+Under a rebase it does not become anything, and under a merge commit it does
+only where `merge_commit_message` is set to carry it — so a note in the
+description usually asks for a version nothing will parse. The comment says so
+when it happens; the place that always works is a git trailer at the end of a
+commit on the branch.
+
 This needs the branch's commits, with the files each one changes.
-`fetch-depth: 0` supplies them from the checkout in one `git log`. Without it
-the action falls back to the API, which has no per-commit files endpoint and
-so costs one request per commit; past fifty it declines, and the comment says
-the merge could not be modelled rather than showing the squash answer as
-though it were one.
+`fetch-depth: 0` supplies them from the checkout in one `git log`, read from
+the pull request's head commit rather than from `HEAD` — on a `pull_request`
+event `actions/checkout` leaves `HEAD` at GitHub's ephemeral merge commit,
+which is not one merging writes. Without a deep checkout the action falls back
+to the API, which has no per-commit files endpoint and so costs one request
+per commit; past fifty, or past five hundred commits in the checkout, it
+declines, and the comment says the merge could not be modelled rather than
+showing the squash answer as though it were one.
 
 ## Configuration
 

@@ -22,7 +22,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { action } from "./action.js";
+import { action, branchHead } from "./action.js";
 import { DEFAULT_HEADER, markerFor } from "./comment.js";
 import { startFakeGitHub } from "./fake-github-server.fixture.js";
 import type { FakeGitHub, FakeRepo } from "./fake-github-server.fixture.js";
@@ -489,11 +489,97 @@ describe("action, when a read it can do without fails", () => {
     expect(annotations()).toContain("::warning::`.github/workflows/release.yml`");
   });
 
+  it("asks the API when the checkout reads the range as empty", async () => {
+    // `HEAD..HEAD` is no commits, which is not a reading of the merge: it is
+    // a base and a head that do not describe it. Taking the empty array for
+    // an answer skipped the fallback and then blamed the checkout, which had
+    // read fine.
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "f".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, {
+      "INPUT_MERGE-METHOD": "rebase",
+      "INPUT_CHANGED-FILES": "auto",
+      "INPUT_DIFF-BASE": "HEAD",
+      INPUT_HEAD: "HEAD",
+    });
+    await action(env);
+    expect(server.requests).toContain("GET /repos/acme/widgets/pulls/7/commits");
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).not.toContain(
+      "does not describe this merge",
+    );
+  });
+
+  it("stops paging a branch it has already decided is too long", async () => {
+    // The cap is what keeps a long branch from costing one request per commit
+    // for its files. Reaching it mid-listing is the answer, so the pages after
+    // it are requests spent on a projection already given up on.
+    const many = Array.from({ length: 101 }, (_, i) => ({
+      sha: String(i).padStart(40, "0"),
+      message: "fix: a crash",
+      files: ["src/b.ts"],
+    }));
+    const server = await start({ prCommits: { 7: many } });
+    const env = environment(server, { "INPUT_MERGE-METHOD": "rebase" });
+    await action(env);
+
+    const listings = server.requests.filter(
+      (r) => r === "GET /repos/acme/widgets/pulls/7/commits",
+    );
+    expect(listings).toHaveLength(1);
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain(
+      "does not describe this merge",
+    );
+  });
+
+  it("warns that a `Release-As:` in the description is not an input here", async () => {
+    // The silence this closes: under a rebase the description is not a commit
+    // message at all, so a note written there asks for a version nothing will
+    // ever parse -- and reading notes only from the branch's commits meant
+    // nothing anywhere said so.
+    const server = await start({
+      prCommits: {
+        7: [{ sha: "9".repeat(40), message: "fix: a crash", files: ["src/b.ts"] }],
+      },
+    });
+    const env = environment(server, {
+      "INPUT_MERGE-METHOD": "rebase",
+      INPUT_BODY: "Ship it.\n\nRelease-As: 9.9.9\n",
+    });
+    await action(env);
+
+    const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
+    expect(body).toContain("`Release-As: 9.9.9` was **ignored**");
+    expect(body).toContain("Put the note in a commit on the branch");
+    expect(body).not.toContain("Check the merge box");
+  });
+
   it("refuses a merge method that is not one", async () => {
     const server = await start();
     await expect(
       action(environment(server, { "INPUT_MERGE-METHOD": "fast-forward" })),
     ).rejects.toThrow(/must be one of/);
+  });
+});
+
+describe("branchHead", () => {
+  // Which ref the branch's commits are read from, which is not the ref the
+  // changed-file diff runs against. See the function's own comment, and
+  // git.test.ts for what reading HEAD on a pull_request event produces.
+  const sha = "c".repeat(40);
+
+  it("prefers the event's head sha where the checkout holds it", () => {
+    expect(branchHead({}, sha, () => true)).toBe(sha);
+  });
+
+  it("falls back to HEAD where it does not", () => {
+    expect(branchHead({}, sha, () => false)).toBe("HEAD");
+  });
+
+  it("obeys an explicit head, which a caller named for a reason", () => {
+    expect(branchHead({ INPUT_HEAD: "topic" }, sha, () => true)).toBe("topic");
   });
 });
 

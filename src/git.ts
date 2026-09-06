@@ -98,6 +98,12 @@ export function commitFileIndex(
  * files is attributed to no package and so releases nothing, which is the
  * quiet wrong answer this action exists to avoid; the caller falls back to
  * the API, or to saying it could not model the merge.
+ *
+ * A branch longer than `depth` is the same kind of half answer, so it is the
+ * same undefined: `--max-count` would otherwise return the newest `depth`
+ * commits and nothing would say the oldest ones were dropped. The API path
+ * declines a long branch out loud, and the cheap path must not be the quiet
+ * one. One commit past the cap is read for exactly this reason.
  */
 export function branchCommits(
   base: string,
@@ -114,12 +120,12 @@ export function branchCommits(
   }
 
   const range = `${base}..${head}`;
-  const files = indexOf(range, depth, run);
+  const files = indexOf(range, depth + 1, run);
   if (!files) return undefined;
 
   let out: string;
   try {
-    out = run(["log", "-z", `--max-count=${depth}`, "--format=%H%n%B", range]);
+    out = run(["log", "-z", `--max-count=${depth + 1}`, "--format=%H%n%B", range]);
   } catch {
     return undefined;
   }
@@ -139,8 +145,24 @@ export function branchCommits(
       message: newline === -1 ? "" : entry.slice(newline + 1).trim(),
       files: own,
     });
+    if (commits.length > depth) return undefined;
   }
   return commits;
+}
+
+/**
+ * hasCommit reports whether the checkout holds a commit, so a ref that is
+ * exactly right where it resolves can be preferred over one that is merely
+ * always present. Quiet: an unreadable checkout is simply a no.
+ */
+export function hasCommit(ref: string, run: Runner = gitRunner): boolean {
+  if (!ref) return false;
+  try {
+    run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
