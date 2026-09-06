@@ -582,7 +582,7 @@ var require_parse = __commonJS({
   "node_modules/semver/functions/parse.js"(exports2, module2) {
     "use strict";
     var SemVer = require_semver();
-    var parse = (version, options, throwErrors = false) => {
+    var parse2 = (version, options, throwErrors = false) => {
       if (version instanceof SemVer) {
         return version;
       }
@@ -595,7 +595,7 @@ var require_parse = __commonJS({
         throw er;
       }
     };
-    module2.exports = parse;
+    module2.exports = parse2;
   }
 });
 
@@ -603,9 +603,9 @@ var require_parse = __commonJS({
 var require_valid = __commonJS({
   "node_modules/semver/functions/valid.js"(exports2, module2) {
     "use strict";
-    var parse = require_parse();
+    var parse2 = require_parse();
     var valid = (version, options) => {
-      const v = parse(version, options);
+      const v = parse2(version, options);
       return v ? v.version : null;
     };
     module2.exports = valid;
@@ -616,9 +616,9 @@ var require_valid = __commonJS({
 var require_clean = __commonJS({
   "node_modules/semver/functions/clean.js"(exports2, module2) {
     "use strict";
-    var parse = require_parse();
+    var parse2 = require_parse();
     var clean = (version, options) => {
-      const s = parse(version.trim().replace(/^[=v]+/, ""), options);
+      const s = parse2(version.trim().replace(/^[=v]+/, ""), options);
       return s ? s.version : null;
     };
     module2.exports = clean;
@@ -653,10 +653,10 @@ var require_inc = __commonJS({
 var require_diff = __commonJS({
   "node_modules/semver/functions/diff.js"(exports2, module2) {
     "use strict";
-    var parse = require_parse();
+    var parse2 = require_parse();
     var diff = (version1, version2) => {
-      const v1 = parse(version1, null, true);
-      const v2 = parse(version2, null, true);
+      const v1 = parse2(version1, null, true);
+      const v2 = parse2(version2, null, true);
       const comparison = v1.compare(v2);
       if (comparison === 0) {
         return null;
@@ -727,9 +727,9 @@ var require_patch = __commonJS({
 var require_prerelease = __commonJS({
   "node_modules/semver/functions/prerelease.js"(exports2, module2) {
     "use strict";
-    var parse = require_parse();
+    var parse2 = require_parse();
     var prerelease = (version, options) => {
-      const parsed = parse(version, options);
+      const parsed = parse2(version, options);
       return parsed && parsed.prerelease.length ? parsed.prerelease : null;
     };
     module2.exports = prerelease;
@@ -915,7 +915,7 @@ var require_coerce = __commonJS({
   "node_modules/semver/functions/coerce.js"(exports2, module2) {
     "use strict";
     var SemVer = require_semver();
-    var parse = require_parse();
+    var parse2 = require_parse();
     var { safeRe: re, t } = require_re();
     var coerce = (version, options) => {
       if (version instanceof SemVer) {
@@ -950,7 +950,7 @@ var require_coerce = __commonJS({
       const patch = match[4] || "0";
       const prerelease = options.includePrerelease && match[5] ? `-${match[5]}` : "";
       const build = options.includePrerelease && match[6] ? `+${match[6]}` : "";
-      return parse(`${major}.${minor}.${patch}${prerelease}${build}`, options);
+      return parse2(`${major}.${minor}.${patch}${prerelease}${build}`, options);
     };
     module2.exports = coerce;
   }
@@ -960,7 +960,7 @@ var require_coerce = __commonJS({
 var require_truncate = __commonJS({
   "node_modules/semver/functions/truncate.js"(exports2, module2) {
     "use strict";
-    var parse = require_parse();
+    var parse2 = require_parse();
     var constants = require_constants();
     var SemVer = require_semver();
     var truncate = (version, truncation, options) => {
@@ -972,7 +972,7 @@ var require_truncate = __commonJS({
     };
     var cloneInputVersion = (version, options) => {
       const versionStringToParse = version instanceof SemVer ? version.version : version;
-      return parse(versionStringToParse, options);
+      return parse2(versionStringToParse, options);
     };
     var doTruncation = (version, truncation) => {
       if (isPrerelease(truncation)) {
@@ -2016,7 +2016,7 @@ var require_semver2 = __commonJS({
     var constants = require_constants();
     var SemVer = require_semver();
     var identifiers = require_identifiers();
-    var parse = require_parse();
+    var parse2 = require_parse();
     var valid = require_valid();
     var clean = require_clean();
     var inc = require_inc();
@@ -2055,7 +2055,7 @@ var require_semver2 = __commonJS({
     var simplifyRange = require_simplify();
     var subset = require_subset();
     module2.exports = {
-      parse,
+      parse: parse2,
       valid,
       clean,
       inc,
@@ -7744,7 +7744,7 @@ var require_parser3 = __commonJS({
         parseError: function parseError(str, hash) {
           throw new Error(str);
         },
-        parse: function parse(input2) {
+        parse: function parse2(input2) {
           var self2 = this, stack = [0], vstack = [null], lstack = [], table2 = this.table, yytext = "", yylineno = 0, yyleng = 0, recovering = 0, TERROR = 2, EOF = 1;
           this.lexer.setInput(input2);
           this.lexer.yy = this.yy;
@@ -8657,7 +8657,7 @@ var require_base2 = __commonJS({
     "use strict";
     exports2.__esModule = true;
     exports2.parseWithoutProcessing = parseWithoutProcessing;
-    exports2.parse = parse;
+    exports2.parse = parse2;
     function _interopRequireWildcard(obj) {
       if (obj && obj.__esModule) {
         return obj;
@@ -8699,7 +8699,7 @@ var require_base2 = __commonJS({
       var ast = _parser2["default"].parse(input2);
       return ast;
     }
-    function parse(input2, options) {
+    function parse2(input2, options) {
       var ast = parseWithoutProcessing(input2, options);
       var strip = new _whitespaceControl2["default"](options);
       return strip.accept(ast);
@@ -12297,9 +12297,9 @@ var require_util3 = __commonJS({
       }
       return commitGroups;
     }
-    function getNoteGroups(notes, noteGroupsSort, notesSort) {
+    function getNoteGroups(notes2, noteGroupsSort, notesSort) {
       const retGroups = [];
-      notes.forEach(function(note) {
+      notes2.forEach(function(note) {
         const title = note.title;
         let titleExists = false;
         retGroups.forEach(function(group) {
@@ -12390,14 +12390,14 @@ var require_util3 = __commonJS({
       commit.raw = chunk;
       return commit;
     }
-    function getExtraContext(commits, notes, options) {
+    function getExtraContext(commits, notes2, options) {
       const context = {};
       context.commitGroups = getCommitGroups(options.groupBy, commits, options.commitGroupsSort, options.commitsSort);
-      context.noteGroups = getNoteGroups(notes, options.noteGroupsSort, options.notesSort);
+      context.noteGroups = getNoteGroups(notes2, options.noteGroupsSort, options.notesSort);
       return context;
     }
     function generate(options, commits, context, keyCommit) {
-      const notes = [];
+      const notes2 = [];
       let filteredCommits;
       const compiled = compileTemplates(options);
       if (options.ignoreReverted) {
@@ -12412,14 +12412,14 @@ var require_util3 = __commonJS({
             ...note,
             commit
           };
-          notes.push(commitNote);
+          notes2.push(commitNote);
           return commitNote;
         })
       }));
       context = {
         ...context,
         ...keyCommit,
-        ...getExtraContext(filteredCommits, notes, options)
+        ...getExtraContext(filteredCommits, notes2, options)
       };
       if (keyCommit && keyCommit.committerDate) {
         context.date = keyCommit.committerDate;
@@ -12450,7 +12450,7 @@ var require_conventional_changelog_writer = __commonJS({
     var dateFormat = require_dateformat();
     var { Transform } = __require("stream");
     var { join } = __require("path");
-    var { readFileSync: readFileSync6 } = __require("fs");
+    var { readFileSync: readFileSync7 } = __require("fs");
     var { valid: semverValid } = require_semver2();
     var util = require_util3();
     function conventionalChangelogWriterInit(context, options) {
@@ -12480,10 +12480,10 @@ var require_conventional_changelog_writer = __commonJS({
         includeDetails: false,
         ignoreReverted: true,
         doFlush: true,
-        mainTemplate: readFileSync6(join(__dirname, "templates/template.hbs"), "utf-8"),
-        headerPartial: readFileSync6(join(__dirname, "templates/header.hbs"), "utf-8"),
-        commitPartial: readFileSync6(join(__dirname, "templates/commit.hbs"), "utf-8"),
-        footerPartial: readFileSync6(join(__dirname, "templates/footer.hbs"), "utf-8"),
+        mainTemplate: readFileSync7(join(__dirname, "templates/template.hbs"), "utf-8"),
+        headerPartial: readFileSync7(join(__dirname, "templates/header.hbs"), "utf-8"),
+        commitPartial: readFileSync7(join(__dirname, "templates/commit.hbs"), "utf-8"),
+        footerPartial: readFileSync7(join(__dirname, "templates/footer.hbs"), "utf-8"),
         ...options
       };
       if (!options.transform || typeof options.transform === "object") {
@@ -12856,7 +12856,7 @@ var require_writer_opts = __commonJS({
     var addBangNotes = require_add_bang_notes();
     var compareFunc = require_compare_func();
     var { readFile } = __require("fs").promises;
-    var { resolve: resolve2 } = __require("path");
+    var { resolve: resolve3 } = __require("path");
     var releaseAsRe = /release-as:\s*\w*@?([0-9]+\.[0-9]+\.[0-9a-z]+(-[0-9a-z.]+)?)\s*/i;
     var owner = "{{#if this.owner}}{{~this.owner}}{{else}}{{~@root.owner}}{{/if}}";
     var host = "{{~@root.host}}";
@@ -12886,10 +12886,10 @@ var require_writer_opts = __commonJS({
         commit,
         footer2
       ] = await Promise.all([
-        readFile(resolve2(__dirname, "./templates/template.hbs"), "utf-8"),
-        readFile(resolve2(__dirname, "./templates/header.hbs"), "utf-8"),
-        readFile(resolve2(__dirname, "./templates/commit.hbs"), "utf-8"),
-        readFile(resolve2(__dirname, "./templates/footer.hbs"), "utf-8")
+        readFile(resolve3(__dirname, "./templates/template.hbs"), "utf-8"),
+        readFile(resolve3(__dirname, "./templates/header.hbs"), "utf-8"),
+        readFile(resolve3(__dirname, "./templates/commit.hbs"), "utf-8"),
+        readFile(resolve3(__dirname, "./templates/footer.hbs"), "utf-8")
       ]);
       const writerOpts = getWriterOpts(config);
       writerOpts.mainTemplate = template;
@@ -13152,7 +13152,7 @@ var require_default = __commonJS({
         preset.writerOpts.headerPartial = this.headerPartial || preset.writerOpts.headerPartial;
         preset.writerOpts.mainTemplate = this.mainTemplate || preset.writerOpts.mainTemplate;
         const changelogCommits = commits.map((commit) => {
-          const notes = commit.notes.filter((note) => note.title === "BREAKING CHANGE").map((note) => replaceIssueLink(note, context.host, context.owner, context.repository));
+          const notes2 = commit.notes.filter((note) => note.title === "BREAKING CHANGE").map((note) => replaceIssueLink(note, context.host, context.owner, context.repository));
           let subject = htmlEscape(commit.bareMessage);
           if (options.includeCommitAuthors && commit.author) {
             const authorDisplay = commit.author.username ? `@${commit.author.username}` : commit.author.name;
@@ -13163,7 +13163,7 @@ var require_default = __commonJS({
             subject,
             type: commit.type,
             scope: commit.scope,
-            notes,
+            notes: notes2,
             references: commit.references,
             mentions: [],
             merge: null,
@@ -16614,7 +16614,7 @@ var require_parse2 = __commonJS({
     function isWhitespace(c) {
       return c === 32 || c === 9 || c === 10 || c === 12 || c === 13;
     }
-    function parse(selector) {
+    function parse2(selector) {
       var subselects = [];
       var endIndex = parseSelector(subselects, "".concat(selector), 0);
       if (endIndex < selector.length) {
@@ -16622,7 +16622,7 @@ var require_parse2 = __commonJS({
       }
       return subselects;
     }
-    exports2.parse = parse;
+    exports2.parse = parse2;
     function parseSelector(subselects, selector, selectorIndex) {
       var tokens = [];
       function getName(offset) {
@@ -17350,7 +17350,7 @@ var require_parse3 = __commonJS({
     var whitespace = /* @__PURE__ */ new Set([9, 10, 12, 13, 32]);
     var ZERO = "0".charCodeAt(0);
     var NINE = "9".charCodeAt(0);
-    function parse(formula) {
+    function parse2(formula) {
       formula = formula.trim().toLowerCase();
       if (formula === "even") {
         return [2, 0];
@@ -17402,7 +17402,7 @@ var require_parse3 = __commonJS({
         }
       }
     }
-    exports2.parse = parse;
+    exports2.parse = parse2;
   }
 });
 
@@ -18992,7 +18992,7 @@ var require_html = __commonJS({
             }).join("");
           },
           set: function(content) {
-            var r = parse(content, this._parseOptions);
+            var r = parse2(content, this._parseOptions);
             var nodes = r.childNodes.length ? r.childNodes : [new text_1.default(content, this)];
             resetParent(nodes, this);
             resetParent(this.childNodes, null);
@@ -19009,7 +19009,7 @@ var require_html = __commonJS({
             content = [content];
           } else if (typeof content == "string") {
             options = __assign(__assign({}, this._parseOptions), options);
-            var r = parse(content, options);
+            var r = parse2(content, options);
             content = r.childNodes.length ? r.childNodes : [new text_1.default(r.innerHTML, this)];
           }
           resetParent(this.childNodes, null);
@@ -19028,7 +19028,7 @@ var require_html = __commonJS({
             if (node instanceof node_1.default) {
               return [node];
             } else if (typeof node == "string") {
-              var r = parse(node, _this._parseOptions);
+              var r = parse2(node, _this._parseOptions);
               return r.childNodes.length ? r.childNodes : [new text_1.default(node, _this)];
             }
             return [];
@@ -19387,7 +19387,7 @@ var require_html = __commonJS({
           if (arguments.length < 2) {
             throw new Error("2 arguments required");
           }
-          var p = parse(html, this._parseOptions);
+          var p = parse2(html, this._parseOptions);
           if (where === "afterend") {
             var idx = this.parentNode.childNodes.findIndex(function(child) {
               return child === _this;
@@ -19496,7 +19496,7 @@ var require_html = __commonJS({
           configurable: true
         });
         HTMLElement2.prototype.clone = function() {
-          return parse(this.toString(), this._parseOptions).firstChild;
+          return parse2(this.toString(), this._parseOptions).firstChild;
         };
         return HTMLElement2;
       })(node_1.default)
@@ -19684,7 +19684,7 @@ var require_html = __commonJS({
       return stack;
     }
     exports2.base_parse = base_parse;
-    function parse(data2, options) {
+    function parse2(data2, options) {
       if (options === void 0) {
         options = {};
       }
@@ -19718,7 +19718,7 @@ var require_html = __commonJS({
       }
       return root;
     }
-    exports2.parse = parse;
+    exports2.parse = parse2;
     function resetParent(nodes, parent) {
       return nodes.map(function(node) {
         node.parentNode = parent;
@@ -19780,21 +19780,21 @@ var require_dist = __commonJS({
     var parse_1 = __importDefault(require_parse4());
     var valid_1 = __importDefault(require_valid3());
     exports2.valid = valid_1.default;
-    function parse(data2, options) {
+    function parse2(data2, options) {
       if (options === void 0) {
         options = {};
       }
       return (0, parse_1.default)(data2, options);
     }
-    exports2.default = parse;
-    exports2.parse = parse;
-    parse.parse = parse_1.default;
-    parse.HTMLElement = html_1.default;
-    parse.CommentNode = comment_1.default;
-    parse.valid = valid_1.default;
-    parse.Node = node_1.default;
-    parse.TextNode = text_1.default;
-    parse.NodeType = type_1.default;
+    exports2.default = parse2;
+    exports2.parse = parse2;
+    parse2.parse = parse_1.default;
+    parse2.HTMLElement = html_1.default;
+    parse2.CommentNode = comment_1.default;
+    parse2.valid = valid_1.default;
+    parse2.Node = node_1.default;
+    parse2.TextNode = text_1.default;
+    parse2.NodeType = type_1.default;
   }
 });
 
@@ -19853,12 +19853,12 @@ ${release.notes}
         return this.releaseData.map((release) => release.notes).join("\n\n");
       }
       toString() {
-        const notes = this.notes();
+        const notes2 = this.notes();
         return `${this.header}
 ${NOTES_DELIMITER}
 
 
-${notes}
+${notes2}
 
 ${NOTES_DELIMITER}${this.extra ? `
 
@@ -19889,20 +19889,20 @@ ${this.footer}`;
     }
     var SUMMARY_PATTERN = /^(?<component>.*[^:]):? (?<version>\d+\.\d+\.\d+.*)$/;
     var COMPONENTLESS_SUMMARY_PATTERN = /^(?<version>\d+\.\d+\.\d+.*)$/;
-    function extractMultipleReleases(notes, logger) {
+    function extractMultipleReleases(notes2, logger) {
       const data2 = [];
-      const root = (0, node_html_parser_1.parse)(notes);
+      const root = (0, node_html_parser_1.parse)(notes2);
       for (const detail of root.getElementsByTagName("details")) {
         const summaryNode = detail.getElementsByTagName("summary")[0];
         const summary2 = summaryNode === null || summaryNode === void 0 ? void 0 : summaryNode.textContent;
         const match = summary2.match(SUMMARY_PATTERN);
         if (match === null || match === void 0 ? void 0 : match.groups) {
           detail.removeChild(summaryNode);
-          const notes2 = detail.textContent.trim();
+          const notes3 = detail.textContent.trim();
           data2.push({
             component: match.groups.component,
             version: version_1.Version.parse(match.groups.version),
-            notes: notes2
+            notes: notes3
           });
         } else {
           const componentlessMatch = summary2.match(COMPONENTLESS_SUMMARY_PATTERN);
@@ -19911,10 +19911,10 @@ ${this.footer}`;
             continue;
           }
           detail.removeChild(summaryNode);
-          const notes2 = detail.textContent.trim();
+          const notes3 = detail.textContent.trim();
           data2.push({
             version: version_1.Version.parse(componentlessMatch.groups.version),
-            notes: notes2
+            notes: notes3
           });
         }
       }
@@ -25951,7 +25951,7 @@ var require_sax = __commonJS({
         var domBuilder = this.domBuilder;
         domBuilder.startDocument();
         _copy(defaultNSMap, defaultNSMap = {});
-        parse(
+        parse2(
           source,
           defaultNSMap,
           entityMap,
@@ -25961,7 +25961,7 @@ var require_sax = __commonJS({
         domBuilder.endDocument();
       }
     };
-    function parse(source, defaultNSMapCopy, entityMap, domBuilder, errorHandler) {
+    function parse2(source, defaultNSMapCopy, entityMap, domBuilder, errorHandler) {
       function fixedFromCharCode(code2) {
         if (code2 > 65535) {
           code2 -= 65536;
@@ -30482,7 +30482,7 @@ var require_xpath = __commonJS({
             return this.select(options)[0];
           }
         };
-        function parse(xpath2) {
+        function parse2(xpath2) {
           var parsed = parser.parse(xpath2);
           return Object.create(evaluatorPrototype, {
             expression: {
@@ -30490,7 +30490,7 @@ var require_xpath = __commonJS({
             }
           });
         }
-        exports3.parse = parse;
+        exports3.parse = parse2;
       })();
       assign(
         exports3,
@@ -35919,8 +35919,8 @@ var require_base3 = __commonJS({
             return;
           }
         }
-        const notes = releaseData === null || releaseData === void 0 ? void 0 : releaseData.notes;
-        if (notes === void 0) {
+        const notes2 = releaseData === null || releaseData === void 0 ? void 0 : releaseData.notes;
+        if (notes2 === void 0) {
           this.logger.warn("Failed to find release notes");
         }
         let version = pullRequestTitle.getVersion();
@@ -35941,7 +35941,7 @@ var require_base3 = __commonJS({
         return {
           name: releaseName,
           tag,
-          notes: notes || "",
+          notes: notes2 || "",
           sha: mergedPullRequest.sha
         };
       }
@@ -36201,8 +36201,8 @@ var require_dotnet_yoshi = __commonJS({
         super(options);
       }
       async buildReleaseNotes(conventionalCommits, newVersion, newVersionTag, latestRelease) {
-        const notes = await super.buildReleaseNotes(conventionalCommits, newVersion, newVersionTag, latestRelease);
-        return notes.replace(RELEASE_NOTES_HEADER_PATTERN, "## Version $1, released $2");
+        const notes2 = await super.buildReleaseNotes(conventionalCommits, newVersion, newVersionTag, latestRelease);
+        return notes2.replace(RELEASE_NOTES_HEADER_PATTERN, "## Version $1, released $2");
       }
       async getApi() {
         try {
@@ -44229,7 +44229,7 @@ var require_public_api = __commonJS({
       }
       return doc;
     }
-    function parse(src, reviver, options) {
+    function parse2(src, reviver, options) {
       let _reviver = void 0;
       if (typeof reviver === "function") {
         _reviver = reviver;
@@ -44270,7 +44270,7 @@ var require_public_api = __commonJS({
         return value.toString(options);
       return new Document.Document(value, _replacer, options).toString(options);
     }
-    exports2.parse = parse;
+    exports2.parse = parse2;
     exports2.parseAllDocuments = parseAllDocuments;
     exports2.parseDocument = parseDocument;
     exports2.stringify = stringify;
@@ -44802,19 +44802,19 @@ var require_java = __commonJS({
         }
         const pullRequestTitle = pull_request_title_1.PullRequestTitle.ofComponentTargetBranchVersion(component || "", this.targetBranch, newVersion);
         const branchName = component ? branch_name_1.BranchName.ofComponentTargetBranch(component, this.targetBranch) : branch_name_1.BranchName.ofTargetBranch(this.targetBranch);
-        const notes = "### Updating meta-information for bleeding-edge SNAPSHOT release.";
+        const notes2 = "### Updating meta-information for bleeding-edge SNAPSHOT release.";
         const pullRequestBody = new pull_request_body_1.PullRequestBody([
           {
             component,
             version: newVersion,
-            notes
+            notes: notes2
           }
         ]);
         const updates = await this.buildUpdates({
           newVersion,
           versionsMap,
           skipChangelog: this.skipChangelog,
-          changelogEntry: notes,
+          changelogEntry: notes2,
           isSnapshot: true,
           commits: []
         });
@@ -46052,8 +46052,8 @@ var require_php_yoshi = __commonJS({
         const versionOverrides = {};
         commits.forEach((commit) => {
           var _a2;
-          Object.entries(parseVersionOverrides(((_a2 = commit.pullRequest) === null || _a2 === void 0 ? void 0 : _a2.body) || "")).forEach(([directory, version]) => {
-            versionOverrides[directory] = version;
+          Object.entries(parseVersionOverrides(((_a2 = commit.pullRequest) === null || _a2 === void 0 ? void 0 : _a2.body) || "")).forEach(([directory2, version]) => {
+            versionOverrides[directory2] = version;
           });
         });
         const newVersion = latestRelease ? await this.versioningStrategy.bump(latestRelease.tag.version, conventionalCommits) : this.initialReleaseVersion();
@@ -46065,17 +46065,17 @@ var require_php_yoshi = __commonJS({
         const component = await this.getComponent();
         const newVersionTag = new tag_name_1.TagName(newVersion, component, this.tagSeparator, this.includeVInTag);
         let releaseNotesBody = `## ${newVersion.toString()}`;
-        for (const directory of topLevelDirectories) {
+        for (const directory2 of topLevelDirectories) {
           try {
-            const contents = await this.github.getFileContentsOnBranch(this.addPath(`${directory}/VERSION`), this.targetBranch);
-            const composer = await this.github.getFileJson(this.addPath(`${directory}/composer.json`), this.targetBranch);
-            directoryVersionContents[directory] = {
+            const contents = await this.github.getFileContentsOnBranch(this.addPath(`${directory2}/VERSION`), this.targetBranch);
+            const composer = await this.github.getFileJson(this.addPath(`${directory2}/composer.json`), this.targetBranch);
+            directoryVersionContents[directory2] = {
               versionContents: contents,
               composer
             };
-            const newVersion2 = versionOverrides[directory] ? version_1.Version.parse(versionOverrides[directory]) : await this.versioningStrategy.bump(version_1.Version.parse(contents.parsedContent), splitCommits[directory]);
+            const newVersion2 = versionOverrides[directory2] ? version_1.Version.parse(versionOverrides[directory2]) : await this.versioningStrategy.bump(version_1.Version.parse(contents.parsedContent), splitCommits[directory2]);
             versionsMap.set(composer.name, newVersion2);
-            const partialReleaseNotes = await this.changelogNotes.buildNotes(splitCommits[directory], {
+            const partialReleaseNotes = await this.changelogNotes.buildNotes(splitCommits[directory2], {
               host: this.changelogHost,
               owner: this.repository.owner,
               repository: this.repository.repo,
@@ -46105,15 +46105,15 @@ var require_php_yoshi = __commonJS({
           commits: conventionalCommits
           // TODO(@bcoe): these commits will need to be divided into multiple changelog.json updates.
         });
-        for (const directory in directoryVersionContents) {
-          const componentInfo = directoryVersionContents[directory];
+        for (const directory2 in directoryVersionContents) {
+          const componentInfo = directoryVersionContents[directory2];
           const version = versionsMap.get(componentInfo.composer.name);
           if (!version) {
             this.logger.warn(`No version found for ${componentInfo.composer.name}`);
             continue;
           }
           updates.push({
-            path: this.addPath(`${directory}/VERSION`),
+            path: this.addPath(`${directory2}/VERSION`),
             createIfMissing: false,
             cachedFileContents: componentInfo.versionContents,
             updater: new default_1.DefaultUpdater({
@@ -46121,7 +46121,7 @@ var require_php_yoshi = __commonJS({
             })
           });
           updates.push({
-            path: this.addPath(`${directory}/composer.json`),
+            path: this.addPath(`${directory2}/composer.json`),
             createIfMissing: false,
             updater: new root_composer_update_packages_1.RootComposerUpdatePackages({
               version
@@ -46129,7 +46129,7 @@ var require_php_yoshi = __commonJS({
           });
           if ((_c = (_b = componentInfo.composer.extra) === null || _b === void 0 ? void 0 : _b.component) === null || _c === void 0 ? void 0 : _c.entry) {
             updates.push({
-              path: this.addPath(`${directory}/${componentInfo.composer.extra.component.entry}`),
+              path: this.addPath(`${directory2}/${componentInfo.composer.extra.component.entry}`),
               createIfMissing: false,
               updater: new php_client_version_1.PHPClientVersion({
                 version
@@ -46160,14 +46160,14 @@ var require_php_yoshi = __commonJS({
           return void 0;
         }
         const component = await this.getComponent();
-        const notes = body.releaseData.map((release) => {
+        const notes2 = body.releaseData.map((release) => {
           var _a;
           return `<details><summary>${release.component}: ${(_a = release.version) === null || _a === void 0 ? void 0 : _a.toString()}</summary>
 
 ${release.notes}
 </details>`;
         }).join("\n\n");
-        return new pull_request_body_1.PullRequestBody([{ component, notes }], {
+        return new pull_request_body_1.PullRequestBody([{ component, notes: notes2 }], {
           footer: body.footer,
           header: body.header
         });
@@ -46209,8 +46209,8 @@ ${release.notes}
         const overrideMessage = (body.split("BEGIN_VERSION_OVERRIDE")[1] || "").split("END_VERSION_OVERRIDE")[0].trim();
         if (overrideMessage) {
           overrideMessage.split("\n").forEach((line) => {
-            const [directory, version] = line.split(":");
-            versionOverrides[directory.trim()] = version.trim();
+            const [directory2, version] = line.split(":");
+            versionOverrides[directory2.trim()] = version.trim();
           });
         }
       }
@@ -46369,20 +46369,20 @@ var require_parse_async = __commonJS({
       const index = 0;
       const blocksize = opts.blocksize || 40960;
       const parser = new TOMLParser();
-      return new Promise((resolve2, reject) => {
-        setImmediate(parseAsyncNext, index, blocksize, resolve2, reject);
+      return new Promise((resolve3, reject) => {
+        setImmediate(parseAsyncNext, index, blocksize, resolve3, reject);
       });
-      function parseAsyncNext(index2, blocksize2, resolve2, reject) {
+      function parseAsyncNext(index2, blocksize2, resolve3, reject) {
         if (index2 >= str.length) {
           try {
-            return resolve2(parser.finish());
+            return resolve3(parser.finish());
           } catch (err) {
             return reject(prettyError(err, str));
           }
         }
         try {
           parser.parse(str.slice(index2, index2 + blocksize2));
-          setImmediate(parseAsyncNext, index2 + blocksize2, blocksize2, resolve2, reject);
+          setImmediate(parseAsyncNext, index2 + blocksize2, blocksize2, resolve3, reject);
         } catch (err) {
           reject(prettyError(err, str));
         }
@@ -46408,7 +46408,7 @@ var require_parse_stream = __commonJS({
     function parseReadable(stm) {
       const parser = new TOMLParser();
       stm.setEncoding("utf8");
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve3, reject) => {
         let readable;
         let ended = false;
         let errored = false;
@@ -46416,7 +46416,7 @@ var require_parse_stream = __commonJS({
           ended = true;
           if (readable) return;
           try {
-            resolve2(parser.finish());
+            resolve3(parser.finish());
           } catch (err) {
             reject(err);
           }
@@ -48490,11 +48490,11 @@ var require_workspace = __commonJS({
     };
     exports2.WorkspacePlugin = WorkspacePlugin;
     var DEPENDENCY_HEADER = new RegExp("### Dependencies");
-    function appendDependenciesSectionToChangelog(changelog2, notes, logger = logger_1.logger) {
+    function appendDependenciesSectionToChangelog(changelog2, notes2, logger = logger_1.logger) {
       if (!changelog2) {
         return `### Dependencies
 
-${notes}`;
+${notes2}`;
       }
       logger.info("appending dependency notes to changelog");
       const newLines = [];
@@ -48522,14 +48522,14 @@ ${notes}`;
       }
       if (seenDependenciesSection) {
         return `${changelog2}
-${notes}`;
+${notes2}`;
       }
       return `${changelog2}
 
 
 ### Dependencies
 
-${notes}`;
+${notes2}`;
     }
     exports2.appendDependenciesSectionToChangelog = appendDependenciesSectionToChangelog;
     function addPath(path, file) {
@@ -48863,10 +48863,10 @@ var require_cargo_workspace = __commonJS({
           populateUpdates(originalManifest.target[targetName], updatedManifest.target[targetName], updates);
         }
       }
-      for (const [dt, notes] of updates) {
+      for (const [dt, notes2] of updates) {
         depUpdateNotes += `
   * ${dt}`;
-        for (const note of notes) {
+        for (const note of notes2) {
           depUpdateNotes += note;
         }
       }
@@ -49180,10 +49180,10 @@ var require_node_workspace = __commonJS({
           updates.set(depType, depUpdates);
         }
       }
-      for (const [dt, notes] of updates) {
+      for (const [dt, notes2] of updates) {
         depUpdateNotes += `
   * ${dt}`;
-        for (const note of notes) {
+        for (const note of notes2) {
           depUpdateNotes += note;
         }
       }
@@ -49979,13 +49979,13 @@ var require_pull_request_overflow_handler = __commonJS({
        *   the full content.
        */
       async handleOverflow(pullRequest, maxSize = MAX_ISSUE_BODY_SIZE) {
-        const notes = pullRequest.body.toString();
-        if (notes.length > maxSize) {
+        const notes2 = pullRequest.body.toString();
+        if (notes2.length > maxSize) {
           const notesBranchName = `${pullRequest.headRefName}--release-notes`;
-          const url = await this.github.createFileOnNewBranch(RELEASE_NOTES_FILENAME, notes, notesBranchName, this.github.repository.defaultBranch);
+          const url = await this.github.createFileOnNewBranch(RELEASE_NOTES_FILENAME, notes2, notesBranchName, this.github.repository.defaultBranch);
           return `${OVERFLOW_MESSAGE} ${url}`;
         }
-        return notes;
+        return notes2;
       }
       /**
        * Given a pull request, retrieve the full release notes from the stored
@@ -51528,7 +51528,7 @@ var require_lib10 = __commonJS({
   "node_modules/async-retry/lib/index.js"(exports2, module2) {
     var retrier = require_retry2();
     function retry(fn2, opts) {
-      function run(resolve2, reject) {
+      function run(resolve3, reject) {
         var options = opts || {};
         var op;
         if (!("randomize" in options)) {
@@ -51557,7 +51557,7 @@ var require_lib10 = __commonJS({
             onError(err, num);
             return;
           }
-          Promise.resolve(val).then(resolve2).catch(function catchIt(err) {
+          Promise.resolve(val).then(resolve3).catch(function catchIt(err) {
             onError(err, num);
           });
         }
@@ -52367,7 +52367,7 @@ var require_dist_node4 = __commonJS({
         return template.replace(/\/$/, "");
       }
     }
-    function parse(options) {
+    function parse2(options) {
       let method = options.method.toUpperCase();
       let url = (options.url || "/").replace(/:([a-z]\w+)/g, "{$1}");
       let headers = Object.assign({}, options.headers);
@@ -52431,7 +52431,7 @@ var require_dist_node4 = __commonJS({
       );
     }
     function endpointWithDefaults(defaults, route, options) {
-      return parse(merge(defaults, route, options));
+      return parse2(merge(defaults, route, options));
     }
     function withDefaults(oldDefaults, newDefaults) {
       const DEFAULTS2 = merge(oldDefaults, newDefaults);
@@ -52440,7 +52440,7 @@ var require_dist_node4 = __commonJS({
         DEFAULTS: DEFAULTS2,
         defaults: withDefaults.bind(null, DEFAULTS2),
         merge: merge.bind(null, DEFAULTS2),
-        parse
+        parse: parse2
       });
     }
     var endpoint = withDefaults(null, DEFAULTS);
@@ -55763,7 +55763,7 @@ var require_ms = __commonJS({
       options = options || {};
       var type = typeof val;
       if (type === "string" && val.length > 0) {
-        return parse(val);
+        return parse2(val);
       } else if (type === "number" && isFinite(val)) {
         return options.long ? fmtLong(val) : fmtShort(val);
       }
@@ -55771,7 +55771,7 @@ var require_ms = __commonJS({
         "val is not a non-empty string or a valid number. val=" + JSON.stringify(val)
       );
     };
-    function parse(str) {
+    function parse2(str) {
       str = String(str);
       if (str.length > 100) {
         return;
@@ -56458,8 +56458,8 @@ var require_helpers4 = __commonJS({
     function req(url, opts = {}) {
       const href = typeof url === "string" ? url : url.href;
       const req2 = (href.startsWith("https:") ? https : http).request(url, opts);
-      const promise = new Promise((resolve2, reject) => {
-        req2.once("response", resolve2).once("error", reject).end();
+      const promise = new Promise((resolve3, reject) => {
+        req2.once("response", resolve3).once("error", reject).end();
       });
       req2.then = promise.then.bind(promise);
       return req2;
@@ -56636,7 +56636,7 @@ var require_parse_proxy_response = __commonJS({
     var debug_1 = __importDefault(require_src());
     var debug = (0, debug_1.default)("https-proxy-agent:parse-proxy-response");
     function parseProxyResponse(socket) {
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve3, reject) => {
         let buffersLength = 0;
         const buffers = [];
         function read() {
@@ -56702,7 +56702,7 @@ var require_parse_proxy_response = __commonJS({
           }
           debug("got proxy server response: %o %o", firstLine, headers);
           cleanup();
-          resolve2({
+          resolve3({
             connect: {
               statusCode,
               statusText,
@@ -57759,7 +57759,7 @@ var require_github_api = __commonJS({
       };
     };
     exports2.wrapAsync = wrapAsync;
-    var sleepInMs = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+    var sleepInMs = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
     exports2.sleepInMs = sleepInMs;
   }
 });
@@ -60764,7 +60764,7 @@ var require_github2 = __commonJS({
         }
       };
     };
-    var sleepInMs = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+    var sleepInMs = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
     exports2.sleepInMs = sleepInMs;
   }
 });
@@ -61350,7 +61350,7 @@ var require_src2 = __commonJS({
 });
 
 // src/action.ts
-import { readFileSync as readFileSync4, writeFileSync } from "node:fs";
+import { readFileSync as readFileSync5, writeFileSync } from "node:fs";
 
 // src/api.ts
 var GITHUB_API = "https://api.github.com";
@@ -61677,10 +61677,10 @@ var SILENT = {
 var watching = false;
 var seen = [];
 function watchBoundaries(sink) {
-  const record = {};
+  const record2 = {};
   for (const [level, fn2] of Object.entries(sink)) {
     if (typeof fn2 !== "function") continue;
-    record[level] = level === "info" ? (...args) => {
+    record2[level] = level === "info" ? (...args) => {
       const [message] = args;
       if (typeof message === "string") {
         const found = parseUnresolvedBoundary(message);
@@ -61691,7 +61691,7 @@ function watchBoundaries(sink) {
   }
   watching = true;
   seen = [];
-  (0, import_release_please2.setLogger)(record);
+  (0, import_release_please2.setLogger)(record2);
 }
 function armBoundaryWatch() {
   if (!watching) watchBoundaries(SILENT);
@@ -62146,10 +62146,10 @@ async function project(options) {
     options.commit.files,
     packages.map((p) => p.path)
   );
-  const notes = releaseAsNotes(options.commit.body);
-  const honoured = notes.seen.find((v) => projected.some((r) => r.version === v));
-  const asked = honoured ?? notes.meant;
-  const ignoredReleaseAs = !honoured && notes.meant && touched.size > 0 ? notes.meant : void 0;
+  const notes2 = releaseAsNotes(options.commit.body);
+  const honoured = notes2.seen.find((v) => projected.some((r) => r.version === v));
+  const asked = honoured ?? notes2.meant;
+  const ignoredReleaseAs = !honoured && notes2.meant && touched.size > 0 ? notes2.meant : void 0;
   return {
     packages,
     touched,
@@ -62195,8 +62195,8 @@ function loadReleasePrs(text, prefix = DEFAULT_TYPES.releaseBranchPrefix, base) 
 
 // src/run.ts
 var import_release_please4 = __toESM(require_src2(), 1);
-import { existsSync, readFileSync as readFileSync2 } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { resolve as resolve2 } from "node:path";
 
 // src/render.ts
 function visibleTitle(options) {
@@ -62249,14 +62249,14 @@ function renderProjection(projection, options) {
   const unmoved = rows.filter(
     (r) => r.projected !== void 0 && r.projected.version === r.pending?.version && touched.has(r.pkg.releaseComponent)
   );
-  const shown = rows.filter(affected);
+  const shown2 = rows.filter(affected);
   const dropped = rows.filter((r) => !affected(r));
   const said = verdict(projection, options, moved, unmoved, touchedPackages);
   const out = ["## Projected releases"];
   if (said) out.push("", said);
-  if (shown.some(releasing)) {
-    out.push("", ...table(shown, rows, options));
-    const line = coverage(dropped, shown.length > 0);
+  if (shown2.some(releasing)) {
+    out.push("", ...table(shown2, rows, options));
+    const line = coverage(dropped, shown2.length > 0);
     if (line) out.push("", line);
   }
   const byComponent = groupBy(projection.packages, (p) => p.releaseComponent);
@@ -62491,11 +62491,11 @@ function matchedFiles(projection) {
   const lines = ["<details><summary>Matched files</summary>", ""];
   for (const [path, files] of projection.touched) {
     const pkg = projection.packages.find((p) => p.path === path);
-    const shown = files.slice(0, 10);
+    const shown2 = files.slice(0, 10);
     if (named) lines.push(`\`${pkg?.component ?? path}\` matched:`);
-    for (const file of shown) lines.push(`- \`${file}\``);
-    if (files.length > shown.length) {
-      lines.push(`- \u2026and ${files.length - shown.length} more`);
+    for (const file of shown2) lines.push(`- \`${file}\``);
+    if (files.length > shown2.length) {
+      lines.push(`- \u2026and ${files.length - shown2.length} more`);
     }
     lines.push("");
   }
@@ -62508,6 +62508,169 @@ function matchedFiles(projection) {
   }
   lines.push("</details>");
   return lines.join("\n");
+}
+
+// src/workflow.ts
+var import_yaml = __toESM(require_dist2(), 1);
+import { existsSync, readFileSync as readFileSync2, readdirSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+var WORKFLOW_DIR = ".github/workflows";
+var OFF = "off";
+var AUTO = "auto";
+var ACTION = /^[\w.-]+\/release-please-action(?:\/[^@\s]*)?(?:@\S*)?$/;
+var EXPRESSION = /\$\{\{/;
+function compareReleaseWorkflow(given) {
+  const setting = (given.workflow ?? AUTO).trim() || AUTO;
+  if (setting === OFF) return { decided: false, notes: [] };
+  const files = setting === AUTO ? workflowFiles(given.root) : [namedWorkflow(given.root, setting)];
+  const callers = files.flatMap((file) => callersIn(given.root, file));
+  const caller = governing(callers, given.base);
+  if (!caller || caller.unresolved.has("release-type")) {
+    return { decided: false, notes: [] };
+  }
+  return { decided: true, notes: notes(caller, given) };
+}
+function governing(callers, base) {
+  const plausible = callers.filter((caller) => {
+    const target = caller.given.get("target-branch");
+    return target === void 0 || target === "" || target === base;
+  });
+  return plausible.length === 1 ? plausible[0] : void 0;
+}
+function workflowFiles(root) {
+  const dir = resolve(root, WORKFLOW_DIR);
+  try {
+    if (!statSync(dir).isDirectory()) return [];
+    return readdirSync(dir).filter((name2) => /\.ya?ml$/.test(name2)).sort().map((name2) => `${WORKFLOW_DIR}/${name2}`);
+  } catch {
+    return [];
+  }
+}
+function namedWorkflow(root, path) {
+  if (existsSync(resolve(root, path))) return path;
+  throw new Error(
+    `no \`${path}\` in \`${root}\`: \`release-workflow\` names the workflow that calls release-please-action, so that this action's inputs can be compared with the ones it passes. Set it to \`auto\` to go looking for that workflow, or \`off\` to compare nothing.`
+  );
+}
+function callersIn(root, file) {
+  let document2;
+  try {
+    document2 = (0, import_yaml.parse)(readFileSync2(resolve(root, file), "utf8"));
+  } catch {
+    return [];
+  }
+  const jobs = record(record(document2)?.["jobs"]);
+  if (!jobs) return [];
+  const callers = [];
+  for (const job of Object.values(jobs)) {
+    const steps = record(job)?.["steps"];
+    if (!Array.isArray(steps)) continue;
+    for (const step of steps) {
+      const uses = record(step)?.["uses"];
+      if (typeof uses !== "string" || !ACTION.test(uses.trim())) continue;
+      callers.push({ file, ...inputsOf(record(step)?.["with"]) });
+    }
+  }
+  return callers;
+}
+function inputsOf(block) {
+  const given = /* @__PURE__ */ new Map();
+  const unresolved = /* @__PURE__ */ new Set();
+  for (const [name2, value] of Object.entries(record(block) ?? {})) {
+    if (value === null || value === void 0) continue;
+    if (typeof value === "object") continue;
+    const text = String(value).trim();
+    if (EXPRESSION.test(text)) unresolved.add(name2);
+    else given.set(name2, text);
+  }
+  return { given, unresolved };
+}
+function record(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : void 0;
+}
+var PLAIN = [
+  { ours: "package-path", theirs: "path", unset: ".", read: directory },
+  {
+    ours: "include-component-in-tag",
+    unset: String(PLAIN_INCLUDE_COMPONENT_IN_TAG),
+    read: (value) => value.toLowerCase()
+  },
+  { ours: "versioning-strategy", unset: "default" },
+  { ours: "release-as", unset: "" }
+];
+function directory(value) {
+  const trimmed = value.replace(/\/+$/, "");
+  return trimmed === "" || trimmed === "." ? "." : trimmed;
+}
+var UNSHARED = ["component", "tag-separator"];
+function notes(caller, given) {
+  const mode = modeNote(caller, given);
+  if (mode) return [mode];
+  return given.plain ? plainNotes(caller, given.plain) : manifestNotes(caller, given);
+}
+function modeNote(caller, given) {
+  const theirs = caller.given.get("release-type") ?? "";
+  const plainThere = theirs !== "";
+  const plainHere = given.plain !== void 0;
+  if (plainThere === plainHere) return void 0;
+  if (plainThere) {
+    return `- \`${caller.file}\` passes release-please \`release-type: ${theirs}\`, which is the switch into its non-manifest mode: the release will not read \`${given.configFile}\`, and this projection did. Pass this action the same \`release-type\` \u2014 and the rest of that step's \`with:\` block \u2014 to model the release that will run.`;
+  }
+  return `- \`release-type\` is set here, so this projection is release-please's non-manifest mode \u2014 but \`${caller.file}\` calls release-please-action without one, so the release reads \`${given.configFile}\` instead. Clearing \`release-type\` here reads the same files it will.`;
+}
+function plainNotes(caller, plain) {
+  const ours = new Map([
+    ["release-type", plain.releaseType],
+    ...plain.path !== void 0 ? [["package-path", plain.path]] : [],
+    ...plain.includeComponentInTag !== void 0 ? [["include-component-in-tag", String(plain.includeComponentInTag)]] : [],
+    ...plain.versioning !== void 0 ? [["versioning-strategy", plain.versioning]] : [],
+    ...plain.releaseAs !== void 0 ? [["release-as", plain.releaseAs]] : []
+  ]);
+  const found = [
+    { ours: "release-type", unset: "" },
+    ...PLAIN
+  ].flatMap((setting) => {
+    const note = drift(caller, setting, ours.get(setting.ours));
+    return note ? [note] : [];
+  });
+  for (const name2 of UNSHARED) {
+    const value = name2 === "component" ? plain.component : plain.tagSeparator;
+    if (!value) continue;
+    found.push(
+      `- \`${name2}\` is set here, and release-please-action has no input for it: \`${caller.file}\` cannot pass one, so the release takes what release-please derives. The projection models \`${value}\` instead. Leave it unset unless something other than that workflow cuts this repository's releases.`
+    );
+  }
+  return found;
+}
+function manifestNotes(caller, given) {
+  const settings = [
+    { ours: "config-file", unset: DEFAULT_CONFIG_FILE },
+    { ours: "manifest-file", unset: DEFAULT_MANIFEST_FILE }
+  ];
+  const ours = /* @__PURE__ */ new Map([
+    ["config-file", given.configFile],
+    ["manifest-file", given.manifestFile]
+  ]);
+  return settings.flatMap((setting) => {
+    const note = drift(caller, setting, ours.get(setting.ours));
+    return note ? [note] : [];
+  });
+}
+function drift(caller, setting, mine) {
+  const name2 = setting.theirs ?? setting.ours;
+  if (caller.unresolved.has(name2)) return void 0;
+  const read = setting.read ?? ((value) => value);
+  const raw = caller.given.get(name2);
+  const theirs = raw === void 0 || raw === "" ? setting.unset : read(raw);
+  const ours = mine === void 0 || mine === "" ? setting.unset : read(mine);
+  if (theirs === ours) return void 0;
+  return `- \`${caller.file}\` passes release-please ${shown(raw, name2, setting)}, and this action was given ${shown(mine, setting.ours, setting)}. The projection models the second; the release will use the first.`;
+}
+function shown(value, name2, setting) {
+  if (value === void 0 || value === "") {
+    return setting.unset === "" ? `no \`${name2}\`` : `no \`${name2}\`, so \`${setting.unset}\``;
+  }
+  return `\`${name2}: ${value}\``;
 }
 
 // src/run.ts
@@ -62542,7 +62705,7 @@ function missingConfig(path, root, counterpart) {
 function modeAdvisories(context) {
   if (!context.plain) return [];
   const found = [context.configFile, context.manifestFile].filter(
-    (path) => existsSync(resolve(context.root, path))
+    (path) => existsSync2(resolve2(context.root, path))
   );
   if (found.length === 0) return [];
   const names = found.map((path) => `\`${path}\``).join(" and ");
@@ -62555,18 +62718,27 @@ async function buildComment(options) {
   const configFile = options.configFile ?? DEFAULT_CONFIG_FILE;
   const manifestFile = options.manifestFile ?? DEFAULT_MANIFEST_FILE;
   const readJson = (path, counterpart) => {
-    const full = resolve(root, path);
-    if (!existsSync(full)) {
-      const other = existsSync(resolve(root, counterpart)) ? counterpart : void 0;
+    const full = resolve2(root, path);
+    if (!existsSync2(full)) {
+      const other = existsSync2(resolve2(root, counterpart)) ? counterpart : void 0;
       throw new Error(missingConfig(path, root, other));
     }
-    return JSON.parse(readFileSync2(full, "utf8"));
+    return JSON.parse(readFileSync3(full, "utf8"));
   };
   const config = options.plain ? {} : readJson(configFile, manifestFile);
   const manifest = options.plain ? {} : readJson(manifestFile, configFile);
+  const workflow = compareReleaseWorkflow({
+    ...options.plain ? { plain: options.plain } : {},
+    configFile,
+    manifestFile,
+    base: options.base,
+    root,
+    ...options.releaseWorkflow ? { workflow: options.releaseWorkflow } : {}
+  });
   const advisories = [
     ...options.advisories ?? [],
-    ...modeAdvisories({
+    ...workflow.notes,
+    ...workflow.decided ? [] : modeAdvisories({
       plain: options.plain !== void 0,
       root,
       configFile,
@@ -62627,8 +62799,8 @@ async function projectPullRequest(options, config, manifest, files) {
     // without it. After the merge, the head's copy is the one that branch has.
     readHeadFile: (path) => {
       if (!options.files.includes(path)) return void 0;
-      const full = resolve(options.repoRoot ?? ".", path);
-      return existsSync(full) ? readFileSync2(full, "utf8") : void 0;
+      const full = resolve2(options.repoRoot ?? ".", path);
+      return existsSync2(full) ? readFileSync3(full, "utf8") : void 0;
     },
     ...options.plain ? { plain: options.plain } : {},
     commit: {
@@ -62644,7 +62816,7 @@ async function projectPullRequest(options, config, manifest, files) {
 }
 
 // src/runner.ts
-import { appendFileSync, readFileSync as readFileSync3 } from "node:fs";
+import { appendFileSync, readFileSync as readFileSync4 } from "node:fs";
 import { randomUUID } from "node:crypto";
 function input(name2, env = process.env) {
   const key = `INPUT_${name2.replace(/ /g, "_").toUpperCase()}`;
@@ -62699,7 +62871,7 @@ function readEvent(env = process.env) {
   if (!path) return {};
   let payload;
   try {
-    payload = JSON.parse(readFileSync3(path, "utf8"));
+    payload = JSON.parse(readFileSync4(path, "utf8"));
   } catch {
     return {};
   }
@@ -62751,7 +62923,7 @@ async function action(env = process.env) {
   const header = inputOr("comment-header", DEFAULT_HEADER, env);
   const outputFile = inputOr("output-file", DEFAULT_OUTPUT, env);
   if (mode === "comment") {
-    await post(client, number, header, readFileSync4(outputFile, "utf8"));
+    await post(client, number, header, readFileSync5(outputFile, "utf8"));
     setOutput("comment-file", outputFile, env);
     return;
   }
@@ -62785,6 +62957,7 @@ async function action(env = process.env) {
     ...plain ? { plain } : {},
     configFile: inputOr("config-file", DEFAULT_CONFIG_FILE, env),
     manifestFile: inputOr("manifest-file", DEFAULT_MANIFEST_FILE, env),
+    releaseWorkflow: inputOr("release-workflow", AUTO, env),
     releasePrs,
     runUrl: input("run-url", env) || defaultRunUrl(env),
     advisories,
@@ -62890,7 +63063,7 @@ function defaultRunUrl(env) {
 }
 
 // src/main.ts
-import { readFileSync as readFileSync5, writeFileSync as writeFileSync2 } from "node:fs";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync2 } from "node:fs";
 import { parseArgs } from "node:util";
 async function cli(argv2) {
   const { values } = parseArgs({
@@ -62913,6 +63086,9 @@ async function cli(argv2) {
       "repo-root": { type: "string", default: "." },
       "config-file": { type: "string", default: DEFAULT_CONFIG_FILE },
       "manifest-file": { type: "string", default: DEFAULT_MANIFEST_FILE },
+      // The release workflow this repository's plain-mode inputs are a second
+      // copy of: `auto` finds it, `off` reads nothing, a path names it.
+      "release-workflow": { type: "string", default: AUTO },
       "release-prs": { type: "string" },
       "release-branch-prefix": { type: "string" },
       // Plain mode: one package, configured here, no config or manifest file
@@ -62964,7 +63140,7 @@ async function cli(argv2) {
     repo: name2,
     token: values.token,
     title,
-    body: values["body-file"] ? readFileSync5(values["body-file"], "utf8") : "",
+    body: values["body-file"] ? readFileSync6(values["body-file"], "utf8") : "",
     number: Number(values.number) || 0,
     base,
     headSha: values["head-sha"],
@@ -62974,8 +63150,9 @@ async function cli(argv2) {
     baseRef: values["diff-base"] || `origin/${base}`,
     configFile: values["config-file"],
     manifestFile: values["manifest-file"],
+    releaseWorkflow: values["release-workflow"],
     releasePrs: values["release-prs"] ? loadReleasePrs(
-      readFileSync5(values["release-prs"], "utf8"),
+      readFileSync6(values["release-prs"], "utf8"),
       values["release-branch-prefix"],
       base
     ) : /* @__PURE__ */ new Map(),

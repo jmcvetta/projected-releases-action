@@ -33,6 +33,7 @@ import {
   warning,
 } from "./runner.js";
 import type { Env } from "./runner.js";
+import { AUTO } from "./workflow.js";
 
 /** Mode is what one invocation does. */
 export type Mode = "render-and-comment" | "render" | "comment";
@@ -122,6 +123,7 @@ export async function action(env: Env = process.env): Promise<void> {
     ...(plain ? { plain } : {}),
     configFile: inputOr("config-file", DEFAULT_CONFIG_FILE, env),
     manifestFile: inputOr("manifest-file", DEFAULT_MANIFEST_FILE, env),
+    releaseWorkflow: inputOr("release-workflow", AUTO, env),
     releasePrs,
     runUrl: input("run-url", env) || defaultRunUrl(env),
     advisories,

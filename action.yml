@@ -91,9 +91,24 @@ inputs:
     required: false
     default: .release-please-manifest.json
   repo-root:
-    description: Directory the two files above are read from.
+    description: >-
+      Directory the two files above are read from, and the checkout
+      `release-workflow` is looked for under.
     required: false
     default: "."
+  release-workflow:
+    description: >-
+      Where the workflow calling `googleapis/release-please-action` is, so
+      that the inputs below can be compared with the ones it passes -- two
+      copies of one configuration, and a projection of tags that will not be
+      cut when they drift apart. `auto` (default) scans `.github/workflows`
+      in the checkout; a path names one workflow; `off` reads nothing.
+      Checking only, never reading values in: anything that cannot be worked
+      out for certain -- no such workflow, one that does not parse, two that
+      could both be the releaser, a value the runner resolves rather than the
+      file -- produces no note rather than a guess.
+    required: false
+    default: auto
 
   release-type:
     description: >-

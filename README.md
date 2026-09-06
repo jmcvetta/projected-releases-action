@@ -105,8 +105,7 @@ release workflow passes it. Pass this action the same value:
 Setting it is what selects that mode — here as on `release-please-action`,
 where its presence is likewise the switch — so the two have to agree. Set it
 where your release workflow does not and the projection describes a
-configuration that will never run; the comment says so when it can tell, which
-is when the config files are in the checkout.
+configuration that will never run.
 
 `versioning-strategy` and `release-as` are passed the same way, and matter for
 the same reason: a workflow bumping with `always-bump-patch` releases a feature
@@ -114,6 +113,18 @@ as a patch, and `release-as` is sticky — it holds until the line is removed. A
 projection that has not been told about either reports the version a default
 repository would get.
 
+Every one of these is a second copy of a value that lives in the release
+workflow, which is why the projection checks itself against it. It finds the
+step in `.github/workflows` that calls `release-please-action`, compares the
+values it passes with the ones this action was given, and says on the comment
+where the two differ — a mode set on one side only, a `versioning-strategy`
+changed in one file and not the other. It only ever checks: nothing is read in
+to replace what you typed, and anything it cannot establish (no such workflow,
+one that does not parse, two steps that could both be the releaser, a value the
+runner resolves) produces no note rather than a guess. `release-workflow`
+points it at one file, or turns it off.
+
 `component` and `tag-separator` go the other way: `release-please-action` has
 no input for them at all, so leave them alone unless something other than it
-cuts your releases.
+cuts your releases — and the comment says so if it finds that workflow and you
+have set one.
