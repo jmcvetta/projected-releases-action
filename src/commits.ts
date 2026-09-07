@@ -143,9 +143,13 @@ export function commitSource(
    * commit's pull requests per page — which decides whether a commit's file
    * list is its pull request's or a backfill of its own diff, and, for a
    * commit GitHub associates with more than one pull request, which of them
-   * the commit carries. Neither reaches an answer: the consumer that reads
-   * file lists is handed the page size its own run uses, and the release
-   * search reads no files.
+   * the commit carries. The file lists are safe: the consumer that reads them
+   * is handed the page size its own run uses, and the release search reads no
+   * files. Which pull request a commit carries is not proved safe, only
+   * narrow — a coarser page can lose the sole-commit match, and the release
+   * search reads the pull request's branch and title — but it takes a commit
+   * that GitHub associates with a second pull request, sharing its page with
+   * another commit of the first, at a boundary the finer pages did not have.
    *
    * `maxResults` is deliberately absent. A cap here could not be any
    * consumer's own: release-please stops between pages rather than between

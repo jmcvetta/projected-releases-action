@@ -436,12 +436,14 @@ bug that hid in this repository's own mode.** One pass asks the history more
 than one question: `Manifest.fromConfig` resolves the last release first at
 `{maxResults: 250}`, and `buildPullRequests` then asks `{maxResults: 500,
 backfillFiles: true, batchSize: 100}`. An option-keyed cache answers the first
-and sends the second to a fresh walk, in both passes -- every page fetched
-twice, and 25 serial pages of ten before the real walk even starts, because
-release-please passes no batch size to the release search. `fromConfig` is
-plain mode only, and this repository releases in plain mode, so it paid three
-walks per pull request from the day the cache was written, with the suite
-reporting one throughout (issue #65).
+and sends the second to a fresh walk, in both passes: the release search is
+the one that gets cached, and every page the pull request build reads is
+fetched twice. The release search also pages at ten, release-please passing it
+no batch size -- 25 serial pages where it finds no release pull request at
+all, and one page where the newest commit is a release. `fromConfig` is plain
+mode only, and this repository releases in plain mode, so it paid three walks
+per pull request from the day the cache was written, with the suite reporting
+one throughout (issue #65).
 
 **How a walk count stays green while being the wrong number.** The test that
 drove a real `Manifest` drove manifest mode, which never calls `fromConfig`;
