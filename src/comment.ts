@@ -50,15 +50,37 @@ export interface StickResult {
  * a timestamp, so in practice this only fires when a caller renders without
  * one — but a no-op PATCH still bumps the comment's `updated_at`, and not
  * writing is cheaper than writing.
+ *
+ * `listed` is the comment list a caller has already started reading, since
+ * the read does not depend on the body and the body takes seconds to render.
+ * It is an optional argument rather than a required one because the read is
+ * this function's own business: a caller that has nothing to hand over says
+ * nothing, and one whose head start failed hands over `undefined` and gets
+ * the read it would have had.
+ *
+ * Finding *no* comment in a handed-over list is confirmed against a fresh
+ * read, and that is not caution for its own sake. The list was read before
+ * the body was rendered, which is seconds and on a slow repository much more,
+ * and an absence is the one answer that decides an action rather than a body:
+ * two runs that both saw none both create, `findSticky` serves the first of
+ * the two from then on, and the second is left showing a stale projection
+ * that nothing will ever edit or remove. A body read from a stale list costs
+ * nothing by comparison, because it is overwritten with this one. So the
+ * confirming read is paid on a pull request's first comment and never again.
  */
 export async function stick(
   client: Client,
   number: number,
   header: string,
   body: string,
+  listed?: Promise<readonly IssueComment[] | undefined>,
 ): Promise<StickResult> {
   const full = withMarker(header, body);
-  const existing = findSticky(await client.issueComments(number), header);
+  const head = await listed;
+  let existing = findSticky(head ?? (await client.issueComments(number)), header);
+  if (!existing && head) {
+    existing = findSticky(await client.issueComments(number), header);
+  }
   if (!existing) {
     const created = await client.createComment(number, full);
     return { action: "created", id: created.id };

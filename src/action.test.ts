@@ -202,6 +202,25 @@ function outputs(env: Record<string, string>): Record<string, string> {
 
 const annotations = () => stdout.join("");
 
+/**
+ * quiet is what the fake was asked for, once anything in flight has landed.
+ *
+ * A request the action dispatched reaches the fake a few milliseconds later --
+ * measured at 16ms and three event loop turns for the first one, which pays
+ * for the connection. Reading `server.requests` the instant `action()` rejects
+ * would therefore report an empty list whether or not anything was sent, which
+ * is exactly the vacuous half of an assertion meant to prove nothing was. This
+ * returns the moment anything arrives, and waits an order of magnitude past
+ * that measurement before reporting that nothing did.
+ */
+async function quiet(server: FakeGitHub): Promise<string[]> {
+  const until = Date.now() + 250;
+  while (server.requests.length === 0 && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return server.requests;
+}
+
 describe("action", () => {
   it("renders, writes the outputs, and posts the comment", async () => {
     const server = await start();
@@ -306,6 +325,77 @@ describe("action modes", () => {
     await expect(action({ INPUT_MODE: "post" })).rejects.toThrow(
       /must be one of render-and-comment, render, comment/,
     );
+  });
+});
+
+describe("action, on the reads that decide nothing for each other", () => {
+  // The merge settings, the open pull requests, the changed-file list and the
+  // existing comments are four round trips, and none of them is an input to
+  // another. Serially they cost about a second of a seven-second step.
+  const INDEPENDENT = [
+    "GET /repos/acme/widgets",
+    "GET /repos/acme/widgets/pulls",
+    "GET /repos/acme/widgets/pulls/7/files",
+    "GET /repos/acme/widgets/issues/7/comments",
+  ];
+
+  it("starts all four at once rather than one after another", async () => {
+    // The fake holds each of them until the last arrives, so this passes only
+    // while they really are in flight together. Arrival order would prove
+    // nothing: a serial caller asks in the same order a concurrent one does.
+    const server = await start({ concurrent: INDEPENDENT });
+    await action(environment(server));
+    expect(server.overlapped()).toBe(true);
+    expect(server.comments).toHaveLength(1);
+  });
+
+  it("reads the comments before the projection", async () => {
+    const server = await start();
+    await action(environment(server));
+    const listed = server.requests.indexOf(INDEPENDENT[3]!);
+    expect(listed).toBeGreaterThanOrEqual(0);
+    // The projection is everything release-please asks over GraphQL, and the
+    // read that finds the sticky comment happens before all of it.
+    expect(listed).toBeLessThan(server.requests.indexOf("POST /graphql"));
+  });
+
+  it("re-reads before a first comment, and not before an edit", async () => {
+    // The head start is read before the body is rendered, so an absence in it
+    // is seconds stale -- and an absence is the answer that decides whether
+    // to create. Two runs that both trusted one would leave two comments,
+    // with `findSticky` serving the first of them forever. Finding the
+    // comment costs no such thing, so the steady state is the one read.
+    const server = await start();
+    const lists = () =>
+      server.requests.filter((r) => r === INDEPENDENT[3]).length;
+
+    await action(environment(server));
+    expect(lists()).toBe(2);
+
+    await action(environment(server, { INPUT_TITLE: "feat: a second thing" }));
+    expect(lists()).toBe(3);
+    expect(server.comments).toHaveLength(1);
+    expect(server.comments[0]?.body).toContain("a second thing");
+  });
+
+  it("survives a head start that fails, and reports it where it fell", async () => {
+    // The comment list is read before the projection and awaited after it, so
+    // a rejection nobody is waiting on yet would be an unhandled one -- which
+    // would fail the run over a read that is allowed to fail, and fail it
+    // before the projection it has nothing to do with was even written.
+    const server = await start({ commentListStatus: 403 });
+    const env = environment(server);
+    await action(env);
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain("1.0.0");
+    expect(annotations()).toContain("::warning::could not post");
+  });
+
+  it("does not read the comments at all in `render`", async () => {
+    // Nothing is posted, so the head start would be a request spent on
+    // nothing.
+    const server = await start();
+    await action(environment(server, { INPUT_MODE: "render" }));
+    expect(server.requests).not.toContain(INDEPENDENT[3]);
   });
 });
 
@@ -556,11 +646,15 @@ describe("action, when a read it can do without fails", () => {
     expect(body).not.toContain("Check the merge box");
   });
 
-  it("refuses a merge method that is not one", async () => {
+  it("refuses a merge method that is not one, before spending a request", async () => {
+    // The reads that follow are started together, so an input checked inside
+    // one of them is checked with the other two already in flight: three
+    // round trips spent on a run that cannot succeed.
     const server = await start();
     await expect(
       action(environment(server, { "INPUT_MERGE-METHOD": "fast-forward" })),
     ).rejects.toThrow(/must be one of/);
+    expect(await quiet(server)).toEqual([]);
   });
 });
 
@@ -625,11 +719,12 @@ describe("action's changed-file list", () => {
     ).rejects.toThrow();
   });
 
-  it("refuses a source it does not have", async () => {
+  it("refuses a source it does not have, before spending a request", async () => {
     const server = await start();
     await expect(
       action(environment(server, { "INPUT_CHANGED-FILES": "guess" })),
     ).rejects.toThrow(/must be one of auto, git, api/);
+    expect(await quiet(server)).toEqual([]);
   });
 });
 
