@@ -94,6 +94,33 @@ describe("stick", () => {
     expect(reads()).toBe(0);
   });
 
+  it("confirms an absence in that list before adding a second comment", async () => {
+    // The comment another run posted in the seconds since the handed-over
+    // list was read. Trusting the absence would create a second sticky
+    // comment, and `findSticky` would serve the first of the two from then
+    // on, leaving this one showing a stale projection forever.
+    const { client, created, updated, reads } = fakeClient([
+      { id: 4, body: withMarker("h", "posted since") },
+    ]);
+    expect(await stick(client, 7, "h", "new", Promise.resolve([]))).toEqual({
+      action: "updated",
+      id: 4,
+    });
+    expect(created).toEqual([]);
+    expect(updated).toEqual([{ id: 4, body: withMarker("h", "new") }]);
+    expect(reads()).toBe(1);
+  });
+
+  it("creates once the fresh read agrees there is nothing", async () => {
+    const { client, created, reads } = fakeClient([]);
+    expect(await stick(client, 7, "h", "new", Promise.resolve([]))).toEqual({
+      action: "created",
+      id: 99,
+    });
+    expect(created).toEqual([withMarker("h", "new")]);
+    expect(reads()).toBe(1);
+  });
+
   it("reads for itself when that caller's read gave nothing", async () => {
     // A head start that failed is handed over as `undefined`, so the failure
     // surfaces here, from the read that would have happened anyway.

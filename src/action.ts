@@ -114,6 +114,12 @@ export async function action(env: Env = process.env): Promise<void> {
 
   const plain = plainConfig((name) => input(name, env), (name) => `input \`${name}\``);
 
+  // Both inputs are validated before anything is asked of the API, in the
+  // order the reads below would have raised them. A run that cannot succeed
+  // should not spend requests finding that out.
+  const declared = mergeMethodInput(env);
+  const source = changedFilesSource(env);
+
   // The comment list is read for the sticky comment at the end, and nothing
   // between here and there decides it. Started now, the post costs one write
   // rather than a read and a write; started only in `stick`, it costs a round
@@ -121,14 +127,18 @@ export async function action(env: Env = process.env): Promise<void> {
   const listed =
     mode === "render-and-comment" ? prefetchComments(client, number) : undefined;
 
-  // None of these three depends on another, and each is a round trip. They
-  // are still awaited together rather than any later, because `branchInput`
-  // needs the first and the third and `buildComment` needs all of them.
-  const [merge, releasePrs, files] = await Promise.all([
-    mergePlan(client, env),
-    standingReleasePrs(client, env, base),
-    pullRequestFiles(client, number, base, env),
-  ]);
+  // None of these three decides anything for another, and each is a round
+  // trip. Started in separate statements rather than inside the `Promise.all`
+  // because the order is load-bearing and an array literal makes it look
+  // incidental: `pullRequestFiles` runs `git` through `execFileSync` under
+  // the default `changed-files: auto`, and a blocking subprocess in front of
+  // the two fetches would hold them undispatched until it returned. They are
+  // awaited together rather than any later because `branchInput` needs the
+  // first and the last, and `buildComment` needs all three.
+  const plan = mergePlan(client, declared);
+  const standing = standingReleasePrs(client, env, base);
+  const changed = pullRequestFiles(client, number, base, env, source);
+  const [merge, releasePrs, files] = await Promise.all([plan, standing, changed]);
 
   // What merging actually writes, where it is not one squashed commit. The
   // pull request facts are the same ones the squash commit is built from; the
@@ -136,7 +146,7 @@ export async function action(env: Env = process.env): Promise<void> {
   const branch =
     merge.method === "squash"
       ? undefined
-      : await branchInput(client, env, merge.method, {
+      : await branchInput(client, env, merge.method, source, {
           number,
           base,
           headSha,
@@ -274,6 +284,39 @@ function typeOverrides(
   return { ...(visible ? { visible } : {}), ...(hidden ? { hidden } : {}) };
 }
 
+/**
+ * mergeMethodInput is the `merge-method` input, checked.
+ *
+ * Separate from `mergePlan` because the check has to happen before the reads
+ * it sits beside are started, and `mergePlan` is one of them.
+ */
+function mergeMethodInput(env: Env): MergeMethod {
+  const declared = inputOr("merge-method", "auto", env);
+  if (!isMergeMethod(declared)) {
+    throw new Error(
+      `input \`merge-method\` must be one of ${MERGE_METHODS.join(", ")}`,
+    );
+  }
+  return declared;
+}
+
+/** ChangedFiles is where the file lists are read from. */
+type ChangedFiles = "auto" | "git" | "api";
+
+const CHANGED_FILES: readonly ChangedFiles[] = ["auto", "git", "api"];
+
+/** changedFilesSource is the `changed-files` input, checked. Read by both the
+ * pull request's file list and the branch's commits, and checked once. */
+function changedFilesSource(env: Env): ChangedFiles {
+  const source = inputOr("changed-files", "auto", env);
+  if (!(CHANGED_FILES as readonly string[]).includes(source)) {
+    throw new Error(
+      `input \`changed-files\` must be one of ${CHANGED_FILES.join(", ")}`,
+    );
+  }
+  return source as ChangedFiles;
+}
+
 /** MergePlan is which merge the projection should model, and what it was
  * resolved from. */
 interface MergePlan {
@@ -299,13 +342,10 @@ interface MergePlan {
  * method without them would swap one guess for another. A read that fails
  * leaves GitHub's own defaults, which is the guess it would have been.
  */
-async function mergePlan(client: Client, env: Env): Promise<MergePlan> {
-  const declared = inputOr("merge-method", "auto", env);
-  if (!isMergeMethod(declared)) {
-    throw new Error(
-      `input \`merge-method\` must be one of ${MERGE_METHODS.join(", ")}`,
-    );
-  }
+async function mergePlan(
+  client: Client,
+  declared: MergeMethod,
+): Promise<MergePlan> {
   if (declared === "squash" || declared === "rebase") {
     return { declared, method: declared };
   }
@@ -381,9 +421,9 @@ async function branchInput(
   client: Client,
   env: Env,
   method: ProjectedMethod,
+  source: ChangedFiles,
   pull: BranchInput,
 ): Promise<BranchCommit[] | undefined> {
-  const source = inputOr("changed-files", "auto", env);
   let commits: BranchCommit[] | undefined;
 
   if (source !== "api") {
@@ -467,12 +507,8 @@ async function pullRequestFiles(
   number: number,
   base: string,
   env: Env,
+  source: ChangedFiles,
 ): Promise<string[]> {
-  const source = inputOr("changed-files", "auto", env);
-  if (!["auto", "git", "api"].includes(source)) {
-    throw new Error("input `changed-files` must be one of auto, git, api");
-  }
-
   if (source !== "api") {
     try {
       return changedFiles(

@@ -615,7 +615,22 @@ settings, the open pull requests, the changed-file list, and the comment list
 the sticky comment is found in. Serially they were about a second of a
 seven-second step (measured on run 34031929980, issue #67). The first three go
 through one `Promise.all`; the fourth is started before `buildComment` and
-handed to `stick`, so posting costs one write rather than a read and a write.
+handed to `stick`.
+
+**The dispatch order inside that group is load-bearing, which is why the three
+are started in separate statements rather than in the array literal.**
+`pullRequestFiles` runs `git` through `execFileSync` under the default
+`changed-files: auto`, and a blocking subprocess placed in front of the two
+fetches holds them undispatched until it returns -- losing most of the win, in
+silence. Nothing tests it: `action.test.ts` runs with `changed-files: api`, so
+in the suite that call is a fetch like the others and the barrier below is met
+whatever the order.
+
+**Both inputs are checked before any of it starts.** `merge-method` and
+`changed-files` used to be validated inside the reads that consume them, which
+under `Promise.all` means three requests are already in flight when the run
+throws. `mergeMethodInput` and `changedFilesSource` check them first, in the
+order the reads would have raised them, so the error is the one it always was.
 
 **A read started early and awaited late must not be left to reject.** Nothing
 awaits the comment list until the projection has been rendered, which is
@@ -628,9 +643,28 @@ downgrades a token that cannot write to a warning. `commentListStatus` in the
 fake drives it, and without the `.catch` that test fails the run rather than
 the assertion.
 
+**Finding nothing in that list is confirmed by a second read, and finding
+something is not.** The window between the read and the write went from a
+round trip to the whole projection, and an absence is the one answer that
+decides an *action* rather than a body: two runs whose windows overlap both
+see none and both create, `findSticky` serves the first of the two from then
+on, and the second is left showing a stale projection that nothing will ever
+edit or remove. The example workflow's `concurrency:` block exists because a
+title edit and a push do land together. So `stick` re-reads when a handed-over
+list yields no comment -- once, on a pull request's first comment -- and
+trusts it the rest of the time, which is the case the head start was for.
+
 **Arrival order does not prove concurrency**, which is the trap in testing
 this: a serial caller asks in the same order a concurrent one does, so
 `requests` cannot tell them apart. The fake takes a `concurrent` list of
 `METHOD /path` calls and holds each until all of them are in flight, which is
-a fact only a concurrent caller produces. It opens on a timer as well, so a
-regression reports a failed assertion rather than a hung suite.
+a fact only a concurrent caller produces. Three things that barrier has to get
+right, all of them found by review rather than by a failing test: it opens on
+a timer as well, so a regression reports a failed assertion rather than a hung
+suite; each timer is tied to the round that armed it, or a stale one opens the
+next round early; and a list of one is refused, since one name is met by its
+own arrival and would report overlap that never happened.
+
+**The annotations from those three reads no longer have a fixed order.** They
+race on response arrival. No test asserts on their order today -- don't write
+one.
