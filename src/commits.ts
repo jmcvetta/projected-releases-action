@@ -16,8 +16,10 @@
  * `{maxResults: 250}`, and `buildPullRequests` then asks `{maxResults: 500,
  * backfillFiles: true, batchSize: 100}`. An option-keyed cache answers the
  * first question and delegates the second to a fresh walk, in both passes —
- * which is every page of the real walk fetched twice, in exactly the mode
- * (plain) where this action's own dogfood run could not see it (issue #65).
+ * every page of the real walk fetched twice. This repository releases in
+ * plain mode, so it paid that on every pull request it has ever opened; what
+ * did not see it is the suite, every walk-counting test having driven
+ * manifest mode, where `fromConfig` is never called (issue #65).
  *
  * Two things this must not do, both of which look right and are not:
  *
@@ -36,12 +38,32 @@ import type { Commit, GitHub } from "release-please";
 
 /**
  * UPSTREAM_BATCH_SIZE is the page size release-please walks with when the
- * caller names none — `mergeCommitsGraphQL`'s `first: $num` default.
+ * caller names none — `mergeCommitsGraphQL`'s `first: $num` default, and what
+ * its `Manifest` falls back to for a batch size it discards.
  *
  * It is spelled here because the replay has to stop where the real walk would
  * have, and where that is depends on the page size the consumer asked for.
  */
-const UPSTREAM_BATCH_SIZE = 10;
+export const UPSTREAM_BATCH_SIZE = 10;
+
+/**
+ * walkPageSize is how many commits one page of a walk with this batch size
+ * carries: what the replay stops on, and what the shared read fetches with.
+ *
+ * Anything but a usable size is release-please's own default, which is what
+ * that walk would have paged at: its `Manifest` resolves a batch size with
+ * `||`, so zero and the empty string reach `mergeCommitIterator` as ten. A
+ * repository can also declare a *string* in `commit-batch-size`, which
+ * release-please passes on and GitHub rejects; there is no page size to
+ * describe there, and the default is the honest guess. What it must not be is
+ * `NaN`, which is a page nothing fits in: a loop that yields nothing, never
+ * ends, and never awaits, so nothing on the runner can interrupt it.
+ */
+export function walkPageSize(batchSize: unknown): number {
+  return typeof batchSize === "number" && batchSize >= 1
+    ? Math.floor(batchSize)
+    : UPSTREAM_BATCH_SIZE;
+}
 
 /**
  * CommitFiles answers a commit's file list from somewhere cheaper than the
@@ -214,17 +236,10 @@ export function commitSource(
     // stops where the real walk would have, at the page size this consumer
     // asked for rather than the one the shared walk fetches with.
     //
-    // Anything but a usable page size falls back to release-please's own
-    // default, which is what a walk with no batch size pages at. A repository
-    // can put a string in `commit-batch-size` and release-please hands it
-    // straight back here, and a page of `NaN` commits is a loop that yields
-    // nothing and never ends.
+    // The page size is this consumer's, resolved as release-please would
+    // resolve it: see walkPageSize.
     const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
-    const asked = iteratorOptions?.batchSize;
-    const page =
-      typeof asked === "number" && asked >= 1
-        ? Math.floor(asked)
-        : UPSTREAM_BATCH_SIZE;
+    const page = walkPageSize(iteratorOptions?.batchSize);
     for (let n = 0; n < maxResults; ) {
       for (let i = 0; i < page; i++, n++) {
         const commit = await at(n);

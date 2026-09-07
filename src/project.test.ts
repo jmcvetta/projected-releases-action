@@ -11,6 +11,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { setLogger } from "release-please";
+import { UPSTREAM_BATCH_SIZE } from "./commits.js";
 import { fakeScm, RELEASE_SHA, walkRecord } from "./fake-scm.fixture.js";
 import type { WalkRecord } from "./fake-scm.fixture.js";
 import {
@@ -872,6 +873,17 @@ describe("the commit walk", () => {
     });
     expect(record.walks[0]?.options).toEqual({
       batchSize: 25,
+      backfillFiles: true,
+    });
+  });
+
+  it("pages as release-please will, when the configured size is one it drops", async () => {
+    // release-please resolves its batch size with `||`, so a zero reaches the
+    // walk as ten -- and the shared read has to fetch in the pages the run
+    // being projected fetches in, not in this action's larger ones.
+    const record = await walked({ config: { ...CONFIG, "commit-batch-size": 0 } });
+    expect(record.walks[0]?.options).toEqual({
+      batchSize: UPSTREAM_BATCH_SIZE,
       backfillFiles: true,
     });
   });

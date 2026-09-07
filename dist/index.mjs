@@ -61819,6 +61819,9 @@ function drainBoundaries() {
 
 // src/commits.ts
 var UPSTREAM_BATCH_SIZE = 10;
+function walkPageSize(batchSize) {
+  return typeof batchSize === "number" && batchSize >= 1 ? Math.floor(batchSize) : UPSTREAM_BATCH_SIZE;
+}
 function commitSource(github, options = {}) {
   if (typeof github.mergeCommitIterator !== "function") return github;
   const source = Object.create(github);
@@ -61880,8 +61883,7 @@ function commitSource(github, options = {}) {
       return;
     }
     const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
-    const asked = iteratorOptions?.batchSize;
-    const page = typeof asked === "number" && asked >= 1 ? Math.floor(asked) : UPSTREAM_BATCH_SIZE;
+    const page = walkPageSize(iteratorOptions?.batchSize);
     for (let n = 0; n < maxResults; ) {
       for (let i = 0; i < page; i++, n++) {
         const commit = await at(n);
@@ -62232,7 +62234,7 @@ async function project(options) {
     ...tuned["commit-search-depth"] === void 0 ? { commitSearchDepth: COMMIT_SEARCH_DEPTH } : {},
     ...configuredBatchSize === void 0 ? { commitBatchSize: COMMIT_BATCH_SIZE } : {}
   };
-  const walkBatchSize = typeof configuredBatchSize === "number" && configuredBatchSize > 0 ? configuredBatchSize : COMMIT_BATCH_SIZE;
+  const walkBatchSize = configuredBatchSize === void 0 ? COMMIT_BATCH_SIZE : walkPageSize(configuredBatchSize);
   const build = (github) => plain ? import_release_please3.Manifest.fromConfig(
     github,
     options.commit.baseBranch,

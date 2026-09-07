@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { GitHub, setLogger } from "release-please";
 import type { Commit, GitHub as GitHubType } from "release-please";
-import { commitSource } from "./commits.js";
+import { commitSource, UPSTREAM_BATCH_SIZE, walkPageSize } from "./commits.js";
 import { startFakeGitHub } from "./fake-github-server.fixture.js";
 import { project } from "./project.js";
 
@@ -184,11 +184,22 @@ describe("the cached walk", () => {
     ]);
   });
 
-  it("pages at release-please's default when the batch size is not one", async () => {
-    // A repository can write anything in `commit-batch-size`, and
-    // release-please hands the value back here rather than validating it. A
-    // page of `NaN` commits is a loop that yields nothing and never ends, on
-    // a runner with nothing to report until the workflow times out.
+  it("pages at the size release-please resolved, whatever it was given", async () => {
+    // Asserted on the function rather than through a walk, because the
+    // failure it guards against does not fail: a page of `NaN` commits never
+    // advances and never awaits, so a test driving it hangs the suite for as
+    // long as CI allows rather than naming the bug.
+    expect(walkPageSize(25)).toBe(25);
+    expect(walkPageSize(2.5)).toBe(2);
+    // What release-please's own `commitBatchSize || DEFAULT` resolves a zero
+    // to, and what a string reaches GraphQL as: `first: "auto"`, rejected.
+    expect(walkPageSize(0)).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize(undefined)).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize("auto")).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize(Number.NaN)).toBe(UPSTREAM_BATCH_SIZE);
+  });
+
+  it("replays at that size, so a walk given no usable one pages at ten", async () => {
     const client = history(shas(40));
     const source = commitSource(client.github);
 
@@ -208,6 +219,23 @@ describe("the cached walk", () => {
 
     await expect(walk(source)).rejects.toThrow("graphql exploded");
     await expect(walk(source)).rejects.toThrow("graphql exploded");
+  });
+
+  it("still serves what it read before the failure", async () => {
+    // The cache is read before the failure is raised, so a consumer whose cap
+    // stops short of the commit that failed still gets its history: the
+    // failure belongs to the read that went past it, not to the branch. Raise
+    // it first and the shallower consumer is refused a walk it would have
+    // completed.
+    const client = failing(["a", "b"], new Error("graphql exploded"));
+    const source = commitSource(client.github);
+
+    await expect(walk(source)).rejects.toThrow("graphql exploded");
+    expect(await walk(source, { maxResults: 2, batchSize: 2 })).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(await walk(source, { maxResults: 1, batchSize: 1 })).toEqual(["a"]);
   });
 
   it("hands the client back untouched when the seam has moved", () => {
@@ -347,8 +375,9 @@ describe("the file lists release-please reads", () => {
  * `Manifest.fromConfig` resolves the last release before anything else,
  * walking at 250 with no batch size; `buildPullRequests` then walks at 500,
  * backfilled, in pages of a hundred. Manifest mode never makes the first
- * call, which is why this repository's own dogfood run showed one walk while
- * a plain-mode repository paid for three.
+ * call, and every walk-counting test above drove manifest mode -- which is
+ * how a plain-mode repository came to pay for three walks per pull request
+ * with the suite reporting one.
  */
 describe("a plain-mode projection", () => {
   /** projectPlain projects one pull request against a single-package

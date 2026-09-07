@@ -22,7 +22,7 @@ import type {
 } from "release-please";
 import { armBoundaryWatch, drainBoundaries } from "./boundary.js";
 import type { UnresolvedBoundary } from "./boundary.js";
-import { commitSource } from "./commits.js";
+import { commitSource, walkPageSize } from "./commits.js";
 import type { CommitFiles } from "./commits.js";
 import { componentOfBranch } from "./conventional.js";
 import { ROOT_PACKAGE_PATH, splitFiles } from "./split.js";
@@ -561,14 +561,15 @@ export async function project(options: ProjectOptions): Promise<Projection> {
       ? { commitBatchSize: COMMIT_BATCH_SIZE }
       : {}),
   };
-  // What the shared walk pages at, which is what release-please's own run
-  // will page at: the repository's value where it declares one, this one
-  // where it does not. release-please reads a batch size of zero as unset, so
-  // anything but a positive number is left to the same default it would take.
+  // What the shared walk pages at, resolved the way release-please's own run
+  // resolves it: the repository's value where it declares a usable one, this
+  // action's where it declares none, and release-please's own default where
+  // it declares something release-please discards -- which is what
+  // `commitBatchSize || DEFAULT_COMMIT_BATCH_SIZE` does with a zero.
   const walkBatchSize =
-    typeof configuredBatchSize === "number" && configuredBatchSize > 0
-      ? configuredBatchSize
-      : COMMIT_BATCH_SIZE;
+    configuredBatchSize === undefined
+      ? COMMIT_BATCH_SIZE
+      : walkPageSize(configuredBatchSize);
 
   /** build makes a Manifest the way this repository is configured. Both
    * statics are release-please's public surface. */
