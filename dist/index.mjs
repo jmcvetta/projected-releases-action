@@ -61819,39 +61819,46 @@ function drainBoundaries() {
 
 // src/history.ts
 function sharedWalk() {
-  let asked;
-  const walked = [];
-  let upstream;
-  let exhausted = false;
-  let queue = Promise.resolve();
-  const at = (n) => {
-    const pull = queue.then(async () => {
-      if (n < walked.length) return walked[n];
-      if (exhausted || !upstream) return void 0;
-      const next = await upstream.next();
-      if (next.done) {
-        exhausted = true;
-        return void 0;
+  const slots = /* @__PURE__ */ new Map();
+  const at = (slot, n) => {
+    const pull = slot.queue.then(async () => {
+      if (n < slot.walked.length) return slot.walked[n];
+      if (slot.failed) throw slot.failure;
+      if (slot.exhausted) return void 0;
+      try {
+        const next = await slot.upstream.next();
+        if (next.done) {
+          slot.exhausted = true;
+          return void 0;
+        }
+        slot.walked.push(next.value);
+        return next.value;
+      } catch (error) {
+        slot.failed = true;
+        slot.failure = error;
+        throw error;
       }
-      walked.push(next.value);
-      return next.value;
     });
-    queue = pull.then(
+    slot.queue = pull.then(
       () => void 0,
       () => void 0
     );
     return pull;
   };
   return async function* (question, start, limit = Number.POSITIVE_INFINITY) {
-    if (asked === void 0) {
-      asked = question;
-      upstream = start();
-    } else if (question !== asked) {
-      yield* start();
-      return;
+    let slot = slots.get(question);
+    if (!slot) {
+      slot = {
+        walked: [],
+        upstream: start(),
+        exhausted: false,
+        failed: false,
+        queue: Promise.resolve()
+      };
+      slots.set(question, slot);
     }
     for (let n = 0; n < limit; n++) {
-      const item = await at(n);
+      const item = await at(slot, n);
       if (item === void 0) return;
       yield item;
     }
@@ -61879,22 +61886,27 @@ function historySource(github, options = {}) {
       () => github.mergeCommitIterator.call(source, targetBranch, iteratorOptions)
     );
   };
-  const releases = sharedWalk();
-  source.releaseIterator = function(iteratorOptions) {
-    return releases(
-      "",
-      () => github.releaseIterator.call(source),
-      iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY
-    );
-  };
-  const tags = sharedWalk();
-  source.tagIterator = function(iteratorOptions) {
-    return tags(
-      "",
-      () => github.tagIterator.call(source),
-      iteratorOptions?.maxResults || Number.POSITIVE_INFINITY
-    );
-  };
+  const ALL = "";
+  if (typeof github.releaseIterator === "function") {
+    const releases = sharedWalk();
+    source.releaseIterator = function(iteratorOptions) {
+      return releases(
+        ALL,
+        () => github.releaseIterator.call(source),
+        iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY
+      );
+    };
+  }
+  if (typeof github.tagIterator === "function") {
+    const tags = sharedWalk();
+    source.tagIterator = function(iteratorOptions) {
+      return tags(
+        ALL,
+        () => github.tagIterator.call(source),
+        iteratorOptions?.maxResults || Number.POSITIVE_INFINITY
+      );
+    };
+  }
   return source;
 }
 

@@ -11,21 +11,21 @@
  *
  * The releases and the tags are read more times still, because each pass asks
  * for them twice. `Manifest.fromConfig` resolves the last release through
- * `latestReleaseVersion`, and `buildPullRequests` resolves it again per
- * component — so a plain-mode projection listed the releases four times, with
- * identical pages, before this cached them (issue #66). The two callers do
- * not agree on how many they want: `latestReleaseVersion` asks for all of
- * them and `buildPullRequests` caps the walk at the release search depth. So
- * the upstream walk is started uncapped and each consumer's cap is applied to
- * what it is handed, which reads the same pages upstream would have read for
- * the uncapped caller and no more.
+ * `latestReleaseVersion`, and `buildPullRequests` walks them again to resolve
+ * every component's — so a plain-mode projection listed the releases four
+ * times, with identical pages, before this cached them (issue #66). The two
+ * callers do not agree on how many they want: `latestReleaseVersion` asks for
+ * all of them and `buildPullRequests` caps the walk at the release search
+ * depth. So the upstream walk is started uncapped and each consumer's cap is
+ * applied to what it is handed, which reads the same pages upstream would
+ * have read for the uncapped caller and no more.
  *
- * So every walk is memoized. The cache is filled by the first consumer as it
- * is consumed, and a later one replays it and continues the same upstream
- * iterator where the first one stopped — never a fresh one, which would ask
- * for the same pages again.
+ * So every walk is memoized, one cache per distinct set of options. A cache is
+ * filled by the first consumer as it is consumed, and a later one replays it
+ * and continues the same upstream iterator where the first one stopped — never
+ * a fresh one, which would ask for the same pages again.
  *
- * Two things this must not do, both of which look right and are not:
+ * Three things this must not do, each of which looks right and is not:
  *
  * - **Delegate to the upstream iterator with `yield*`.** release-please stops
  *   a walk by breaking out of a `for await`, which calls `return()` on the
@@ -34,9 +34,16 @@
  *   nothing for the second to continue from, and both the commit walk and the
  *   release walk are stopped early in exactly this way. Pulling one item at a
  *   time keeps the upstream generator merely suspended.
- * - **Assume two walks want the same thing.** A call with different options is
- *   a different question, and is delegated whole rather than answered from
- *   the cache.
+ * - **Cache one walk and re-read the rest.** release-please asks two different
+ *   commit questions in plain mode — `latestReleaseVersion` wants 250 commits
+ *   with no file lists, `buildPullRequests` wants the deep backfilling walk —
+ *   and the cheap one is asked first. A single-slot cache is claimed by it,
+ *   which leaves the expensive walk, the one issue #54 was about, read afresh
+ *   in both passes with nothing on screen to say so.
+ * - **Let a walk that failed look like a walk that ended.** A generator that
+ *   threw is completed, so pulling it again answers `done` — and a second
+ *   consumer served that sees a short history rather than an error. The error
+ *   is kept and rethrown to whoever asks past the point it happened.
  */
 
 import type { Commit, GitHub } from "release-please";
@@ -69,48 +76,83 @@ export interface HistorySourceOptions {
 }
 
 /**
- * sharedWalk memoizes one upstream walk so later consumers replay it.
+ * Slot is one memoized walk: what it has handed out, where it is, and how it
+ * ended.
+ */
+interface Slot<T> {
+  /** walked is every item this walk has yielded, in order. */
+  walked: T[];
+  /** upstream is the walk itself, suspended wherever the furthest consumer
+   * left it. */
+  upstream: AsyncGenerator<T, void, unknown>;
+  /** exhausted records that upstream ran out, so nothing pulls it again. */
+  exhausted: boolean;
+  /** failure is the error upstream threw, kept so later consumers are told
+   * rather than handed a walk that merely looks short. */
+  failed: boolean;
+  failure?: unknown;
+  /** queue serializes the pulls. */
+  queue: Promise<unknown>;
+}
+
+/**
+ * sharedWalk memoizes upstream walks so later consumers replay them.
  *
- * The returned function is the walk as a consumer sees it. `question`
- * identifies what was asked: the first question starts the upstream walk and
- * a different one is handed a walk of its own, since answering it from the
- * cache would answer it wrongly. `limit` caps what this consumer is handed,
- * which is what upstream's own `maxResults` does to it — applied here rather
- * than upstream so that consumers wanting different amounts of the same walk
- * still share one.
+ * The returned function is a walk as a consumer sees it. `question` says what
+ * was asked, and each distinct question gets a walk of its own — because a
+ * different question is a different answer, and answering it from the wrong
+ * cache would be wrong rather than merely slow. Consumers that repeat a
+ * question share one walk however many times they ask.
+ *
+ * `limit` caps what this consumer is handed, which is what upstream's own
+ * `maxResults` does to it — applied here rather than upstream so that
+ * consumers wanting different amounts of the *same* walk still share one. A
+ * cap belongs in the question instead wherever it changes the items rather
+ * than only how many of them there are, which is why the commit walk passes
+ * its `maxResults` upstream and the release walk does not: a commit walk also
+ * carries `backfillFiles`, and a walk that yielded commits with empty file
+ * lists to a consumer expecting them would attribute every commit to no
+ * component and silently release nothing.
  */
 function sharedWalk<T>(): (
   question: string,
   start: () => AsyncGenerator<T, void, unknown>,
   limit?: number,
 ) => AsyncGenerator<T> {
-  // The question the cache holds an answer to.
-  let asked: string | undefined;
-  const walked: T[] = [];
-  let upstream: AsyncGenerator<T, void, unknown> | undefined;
-  let exhausted = false;
-  // One pull at a time. The passes are sequential today; a shared generator
-  // read from two places at once would interleave, and that is not a failure
-  // anyone would enjoy diagnosing.
-  let queue: Promise<unknown> = Promise.resolve();
+  const slots = new Map<string, Slot<T>>();
 
-  /** at returns the nth item of the walk, pulling upstream when the cache
-   * does not reach it and undefined once the walk runs out. */
-  const at = (n: number): Promise<T | undefined> => {
-    const pull = queue.then(async () => {
-      if (n < walked.length) return walked[n];
-      if (exhausted || !upstream) return undefined;
-      const next = await upstream.next();
-      if (next.done) {
-        exhausted = true;
-        return undefined;
+  /** at returns the nth item of a walk, pulling upstream when the cache does
+   * not reach it and undefined once the walk runs out. */
+  const at = (slot: Slot<T>, n: number): Promise<T | undefined> => {
+    // One pull at a time. The passes are sequential today; a shared generator
+    // read from two places at once would interleave, and that is not a
+    // failure anyone would enjoy diagnosing.
+    const pull = slot.queue.then(async () => {
+      if (n < slot.walked.length) return slot.walked[n];
+      // A walk that threw is over -- a generator that threw is completed, so
+      // pulling it again answers `done` -- and every later consumer is told
+      // so. Handing it the part that arrived before the error instead would
+      // be a truncated history nothing reports: a missing release boundary,
+      // `needsBootstrap`, and a version computed over the wrong span.
+      if (slot.failed) throw slot.failure;
+      if (slot.exhausted) return undefined;
+      try {
+        const next = await slot.upstream.next();
+        if (next.done) {
+          slot.exhausted = true;
+          return undefined;
+        }
+        slot.walked.push(next.value);
+        return next.value;
+      } catch (error) {
+        slot.failed = true;
+        slot.failure = error;
+        throw error;
       }
-      walked.push(next.value);
-      return next.value;
     });
-    // A rejected pull must not poison every later one: the chain is for
-    // ordering, and the error belongs to the caller that asked.
-    queue = pull.then(
+    // A rejected pull must not poison the ordering chain: the chain is for
+    // ordering, and the error reaches the caller through `pull` itself.
+    slot.queue = pull.then(
       () => undefined,
       () => undefined,
     );
@@ -122,17 +164,20 @@ function sharedWalk<T>(): (
     start: () => AsyncGenerator<T, void, unknown>,
     limit: number = Number.POSITIVE_INFINITY,
   ): AsyncGenerator<T> {
-    if (asked === undefined) {
-      asked = question;
-      upstream = start();
-    } else if (question !== asked) {
-      // A walk of this consumer's own, which it may close as it likes.
-      yield* start();
-      return;
+    let slot = slots.get(question);
+    if (!slot) {
+      slot = {
+        walked: [],
+        upstream: start(),
+        exhausted: false,
+        failed: false,
+        queue: Promise.resolve(),
+      };
+      slots.set(question, slot);
     }
 
     for (let n = 0; n < limit; n++) {
-      const item = await at(n);
+      const item = await at(slot, n);
       if (item === undefined) return;
       yield item;
     }
@@ -176,10 +221,11 @@ export function historySource(
     targetBranch: string,
     iteratorOptions?: Parameters<GitHub["mergeCommitIterator"]>[1],
   ): AsyncGenerator<Commit> {
-    // Every option upstream reads, because each of them changes the answer:
-    // the cap on the walk, whether file lists are backfilled, and the page
-    // size. `latestReleaseVersion` asks for 250 commits with none of the rest,
-    // which is not the walk `buildPullRequests` asks for.
+    // Every option upstream reads, because each of them changes what the walk
+    // yields: the cap, whether file lists are backfilled, and the page size.
+    // `latestReleaseVersion` asks for 250 commits with none of the rest, which
+    // is not the walk `buildPullRequests` asks for -- so in plain mode these
+    // are two questions and each gets a cache of its own.
     const question = JSON.stringify([
       targetBranch,
       iteratorOptions?.maxResults ?? null,
@@ -191,32 +237,48 @@ export function historySource(
     );
   } as GitHub["mergeCommitIterator"];
 
-  // Releases and tags take no option but the cap, so there is only ever one
-  // question and every consumer shares the walk. The cap is what each of them
-  // is handed, and the coercions below are upstream's own: `releaseIterator`
-  // reads a zero as zero and `tagIterator` reads it as unlimited. Normalising
-  // the two would make this answer a question release-please would not.
-  const releases = sharedWalk<ScmRelease>();
-  source.releaseIterator = function (
-    iteratorOptions?: Parameters<GitHub["releaseIterator"]>[0],
-  ): AsyncGenerator<ScmRelease> {
-    return releases(
-      "",
-      () => github.releaseIterator.call(source),
-      iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY,
-    );
-  } as GitHub["releaseIterator"];
+  // Releases and tags take no option but the cap, and a cap is applied to what
+  // a consumer is handed rather than to the walk -- so there is nothing left
+  // to tell two questions apart, and the constant below says so.
+  //
+  // The coercions are upstream's own and differ: `releaseIterator` reads
+  // `maxResults` with `??` and honours a zero, `tagIterator` reads it with
+  // `||` and treats zero as unlimited. Neither is asked for zero today.
+  // Normalising them would make this answer a question release-please would
+  // not, so they are mirrored and measured against the real client rather
+  // than against a fake -- see "caps its walks exactly as release-please's own
+  // do" in history.test.ts.
+  //
+  // Each override is installed only if the method it shadows is there. These
+  // two are an optimization rather than the seam the projection depends on, so
+  // a client without them is served rather than wrapped in a call that would
+  // throw from inside a generator.
+  const ALL = "";
+  if (typeof github.releaseIterator === "function") {
+    const releases = sharedWalk<ScmRelease>();
+    source.releaseIterator = function (
+      iteratorOptions?: Parameters<GitHub["releaseIterator"]>[0],
+    ): AsyncGenerator<ScmRelease> {
+      return releases(
+        ALL,
+        () => github.releaseIterator.call(source),
+        iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY,
+      );
+    } as GitHub["releaseIterator"];
+  }
 
-  const tags = sharedWalk<ScmTag>();
-  source.tagIterator = function (
-    iteratorOptions?: Parameters<GitHub["tagIterator"]>[0],
-  ): AsyncGenerator<ScmTag> {
-    return tags(
-      "",
-      () => github.tagIterator.call(source),
-      iteratorOptions?.maxResults || Number.POSITIVE_INFINITY,
-    );
-  } as GitHub["tagIterator"];
+  if (typeof github.tagIterator === "function") {
+    const tags = sharedWalk<ScmTag>();
+    source.tagIterator = function (
+      iteratorOptions?: Parameters<GitHub["tagIterator"]>[0],
+    ): AsyncGenerator<ScmTag> {
+      return tags(
+        ALL,
+        () => github.tagIterator.call(source),
+        iteratorOptions?.maxResults || Number.POSITIVE_INFINITY,
+      );
+    } as GitHub["tagIterator"];
+  }
 
   return source;
 }

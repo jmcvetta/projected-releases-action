@@ -86,13 +86,40 @@ describe("the cached walk", () => {
     expect(client.yielded).toEqual(["a", "b", "c", "d"]);
   });
 
-  it("delegates a walk asking a different question", async () => {
+  it("gives a walk asking a different question a cache of its own", async () => {
+    // Not one cache and a re-read for everything else. In plain mode
+    // release-please asks two commit questions -- `latestReleaseVersion` wants
+    // 250 commits with no file lists, `buildPullRequests` wants the deep
+    // backfilling walk -- and the cheap one is asked first. A single-slot
+    // cache is claimed by it, and the expensive walk is then paid for twice.
     const client = history(["a", "b"]);
     const source = historySource(client.github);
 
     await walk(source, { maxResults: 500 });
     await walk(source, { maxResults: 50 });
     expect(client.walks).toBe(2);
+
+    // And each of them is now answered from its own cache.
+    await walk(source, { maxResults: 500 });
+    await walk(source, { maxResults: 50 });
+    expect(client.walks).toBe(2);
+  });
+
+  it("tells a later consumer that the walk failed, rather than ending it", async () => {
+    // A walk that threw is over: pulling a completed generator again answers
+    // `done`, which would look to the second pass exactly like a short
+    // history. That is a missing release boundary and a version computed over
+    // the wrong span, with nothing on screen wrong.
+    const failing = {
+      async *mergeCommitIterator(): AsyncGenerator<Commit> {
+        yield { sha: "a", message: "fix: a thing", files: [] };
+        throw new Error("boom");
+      },
+    } as unknown as GitHubType;
+    const source = historySource(failing);
+
+    await expect(walk(source)).rejects.toThrow("boom");
+    await expect(walk(source)).rejects.toThrow("boom");
   });
 
   it("hands the client back untouched when the seam has moved", () => {
@@ -125,20 +152,30 @@ function catalogue(names: string[]): {
     tagsYielded: [] as string[],
     github: undefined as unknown as GitHubType,
   };
+  // Both honour `maxResults` as release-please's own do, which is what makes
+  // a walk *started* capped -- the design this file rejects -- observable: the
+  // consumer that asked for everything would come back short.
+  const capped = (options?: { maxResults?: number }) =>
+    names.slice(0, options?.maxResults ?? names.length);
+
   state.github = {
     // Present only so the source wraps at all: a client with no commit
     // iterator is handed straight back.
     async *mergeCommitIterator(): AsyncGenerator<Commit> {},
-    async *releaseIterator(): AsyncGenerator<unknown> {
+    async *releaseIterator(options?: {
+      maxResults?: number;
+    }): AsyncGenerator<unknown> {
       state.releaseWalks += 1;
-      for (const name of names) {
+      for (const name of capped(options)) {
         state.releasesYielded.push(name);
         yield { id: name, tagName: `v${name}`, sha: name, notes: "" };
       }
     },
-    async *tagIterator(): AsyncGenerator<unknown> {
+    async *tagIterator(options?: {
+      maxResults?: number;
+    }): AsyncGenerator<unknown> {
       state.tagWalks += 1;
-      for (const name of names) {
+      for (const name of capped(options)) {
         state.tagsYielded.push(name);
         yield { name: `v${name}`, sha: name };
       }
@@ -160,6 +197,17 @@ async function listReleases(
     out.push(release.sha);
     if (out.length >= stopAfter) break;
   }
+  return out;
+}
+
+/** drain reads a whole walk, naming each item, which is how two walks are
+ * compared. */
+async function drain<T>(
+  walk: AsyncGenerator<T, void, unknown>,
+  name: (item: T) => string,
+): Promise<string[]> {
+  const out: string[] = [];
+  for await (const item of walk) out.push(name(item));
   return out;
 }
 
@@ -203,6 +251,9 @@ describe("the cached release walk", () => {
     // And upstream stopped there, so the cap still saved the pages beyond it.
     expect(client.releasesYielded).toEqual(["a", "b"]);
 
+    // The assertion the design rests on: the client honours `maxResults`, so
+    // had the shared walk been started with the first consumer's cap this
+    // would come back as `["a", "b"]`.
     expect(await listReleases(source)).toEqual(["a", "b", "c", "d"]);
     expect(client.releaseWalks).toBe(1);
   });
@@ -219,15 +270,6 @@ describe("the cached release walk", () => {
     expect(client.releaseWalks).toBe(1);
   });
 
-  it("reads a zero cap as no releases, as release-please does", async () => {
-    // `releaseIterator` reads its cap with `??` and so honours a zero.
-    // `tagIterator` reads the same option with `||` and treats zero as
-    // unlimited. Neither is asked for zero today, and a wrapper that
-    // normalised the two would answer a question release-please would not.
-    const client = catalogue(["a", "b"]);
-    const source = historySource(client.github);
-    expect(await listReleases(source, 0)).toEqual([]);
-  });
 });
 
 describe("the cached tag walk", () => {
@@ -242,12 +284,6 @@ describe("the cached tag walk", () => {
     expect(await listTags(source)).toEqual(["a", "b"]);
     expect(client.tagWalks).toBe(1);
     expect(client.tagsYielded).toEqual(["a", "b"]);
-  });
-
-  it("reads a zero cap as unlimited, as release-please does", async () => {
-    const client = catalogue(["a", "b"]);
-    const source = historySource(client.github);
-    expect(await listTags(source, 0)).toEqual(["a", "b"]);
   });
 });
 
@@ -375,6 +411,67 @@ describe("the file lists release-please reads", () => {
 });
 
 /**
+ * The caps, measured against release-please's own client rather than against
+ * a fake.
+ *
+ * The wrapper applies `maxResults` to what a consumer is handed instead of to
+ * the walk, so it has to read the option exactly as upstream does -- and
+ * upstream does not read it the same way twice: `releaseIterator` uses `??`
+ * and `tagIterator` uses `||`, so a zero means none of one and all of the
+ * other. A fake would only pin this file against itself; the real client is
+ * what an upgrade would move.
+ */
+describe("the caps on the release and tag walks", () => {
+  const CAPS = [undefined, 0, 1, 2, 5];
+
+  it("caps its walks exactly as release-please's own do", async () => {
+    const fake = await startFakeGitHub({
+      owner: "acme",
+      repo: "widgets",
+      branch: "master",
+      files: {},
+      commits: [],
+      releases: [
+        { tagName: "v3.0.0", sha: "a".repeat(40) },
+        { tagName: "v2.0.0", sha: "b".repeat(40) },
+        { tagName: "v1.0.0", sha: "c".repeat(40) },
+      ],
+    });
+    try {
+      const github = await GitHub.create({
+        owner: "acme",
+        repo: "widgets",
+        defaultBranch: "master",
+        token: "fake",
+        apiUrl: fake.url,
+        graphqlUrl: fake.url,
+      });
+      const source = historySource(github);
+
+      for (const maxResults of CAPS) {
+        const options = maxResults === undefined ? undefined : { maxResults };
+        expect([
+          maxResults,
+          await drain(source.releaseIterator(options), (r) => r.tagName),
+        ]).toEqual([
+          maxResults,
+          await drain(github.releaseIterator(options), (r) => r.tagName),
+        ]);
+        expect([
+          maxResults,
+          await drain(source.tagIterator(options), (t) => t.name),
+        ]).toEqual([
+          maxResults,
+          await drain(github.tagIterator(options), (t) => t.name),
+        ]);
+      }
+    } finally {
+      await fake.close();
+    }
+  });
+});
+
+/**
  * And the same for the release and tag walks, which is what issue #66 was
  * about. Counting these needs real release-please: how many times it asks is
  * a property of the manifest build, not of anything this action calls.
@@ -436,6 +533,18 @@ describe("the release and tag walks a projection makes", () => {
       expect(
         fake.requests.filter((r) => r === "GET /repos/acme/widgets/tags"),
       ).toEqual(["GET /repos/acme/widgets/tags"]);
+      // And the commit walks, which is what the caches are keyed for: plain
+      // mode is the mode with two commit questions, and a single-slot cache
+      // answered one of them and re-read the other in both passes.
+      // And the commit walks, which is what the caches are keyed for. Plain
+      // mode is the mode with two commit questions -- 250 commits with no
+      // file lists for `latestReleaseVersion`, the deep backfilling walk for
+      // `buildPullRequests` -- so two is the floor, one per question. A
+      // single-slot cache is claimed by the first and reads the second afresh
+      // in both passes, which is three.
+      expect(
+        fake.graphql.filter((query) => query === "pullRequestsSince"),
+      ).toEqual(["pullRequestsSince", "pullRequestsSince"]);
     } finally {
       await fake.close();
     }

@@ -91,8 +91,11 @@ export interface FakeGitHub {
   /** requests are every path requested, in order. */
   requests: string[];
   /**
-   * graphql names every GraphQL query asked of the fake, in order:
-   * `releases`, or `history` for either of the commit-walking queries.
+   * graphql names every GraphQL operation asked of the fake, in order, by the
+   * name release-please gave it: `releases`, `mergedPullRequests` or
+   * `pullRequestsSince`. Read off the query rather than mapped from a list
+   * here, so an operation nobody has seen yet is reported rather than
+   * miscounted as one of these.
    *
    * `requests` cannot tell them apart -- every one of them is a POST to the
    * one `/graphql` path -- and how many times a projection lists the
@@ -163,9 +166,9 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
       // point of serving this over real HTTP.
       if (url === "/graphql") {
         const query = String(JSON.parse(body || "{}").query ?? "");
-        const releases = query.includes("query releases");
-        graphql.push(releases ? "releases" : "history");
-        if (releases) {
+        const operation = /query\s+(\w+)/.exec(query)?.[1] ?? "unknown";
+        graphql.push(operation);
+        if (operation === "releases") {
           return send(200, {
             data: {
               repository: {
