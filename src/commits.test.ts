@@ -185,21 +185,22 @@ describe("the cached walk", () => {
   });
 
   it("pages at the size release-please resolved, whatever it was given", async () => {
-    // Asserted on the function rather than through a walk, because the
-    // failure it guards against does not fail: a page of `NaN` commits never
-    // advances and never awaits, so a test driving it hangs the suite for as
-    // long as CI allows rather than naming the bug.
+    // A repository can write anything in `commit-batch-size`, and
+    // release-please hands the value back rather than validating it.
     expect(walkPageSize(25)).toBe(25);
-    expect(walkPageSize(2.5)).toBe(2);
     // What release-please's own `commitBatchSize || DEFAULT` resolves a zero
-    // to, and what a string reaches GraphQL as: `first: "auto"`, rejected.
+    // to, and what the rest are worth to a query whose `$num` is an `Int!`.
     expect(walkPageSize(0)).toBe(UPSTREAM_BATCH_SIZE);
     expect(walkPageSize(undefined)).toBe(UPSTREAM_BATCH_SIZE);
     expect(walkPageSize("auto")).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize(2.5)).toBe(UPSTREAM_BATCH_SIZE);
     expect(walkPageSize(Number.NaN)).toBe(UPSTREAM_BATCH_SIZE);
   });
 
   it("replays at that size, so a walk given no usable one pages at ten", async () => {
+    // Safe to drive because the loop counts pages: a size that fits nothing
+    // ends the walk. Without that, this test would not fail on a page of
+    // `NaN` commits -- it would hang, on a loop no timeout can reach.
     const client = history(shas(40));
     const source = commitSource(client.github);
 
@@ -375,9 +376,12 @@ describe("the file lists release-please reads", () => {
  * `Manifest.fromConfig` resolves the last release before anything else,
  * walking at 250 with no batch size; `buildPullRequests` then walks at 500,
  * backfilled, in pages of a hundred. Manifest mode never makes the first
- * call, and every walk-counting test above drove manifest mode -- which is
- * how a plain-mode repository came to pay for three walks per pull request
- * with the suite reporting one.
+ * call, and the walk-counting test that drove a real `Manifest` -- the one in
+ * project.test.ts -- drove manifest mode. The tests above drive this file
+ * directly, which is why one of them used to assert the second walk as the
+ * contract. Nothing asked the caller that asks twice, so a plain-mode
+ * repository paid for three walks per pull request with the suite reporting
+ * one.
  */
 describe("a plain-mode projection", () => {
   /** projectPlain projects one pull request against a single-package

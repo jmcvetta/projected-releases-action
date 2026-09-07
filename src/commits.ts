@@ -17,9 +17,11 @@
  * backfillFiles: true, batchSize: 100}`. An option-keyed cache answers the
  * first question and delegates the second to a fresh walk, in both passes —
  * every page of the real walk fetched twice. This repository releases in
- * plain mode, so it paid that on every pull request it has ever opened; what
- * did not see it is the suite, every walk-counting test having driven
- * manifest mode, where `fromConfig` is never called (issue #65).
+ * plain mode, so it paid that on every pull request it has ever opened, and
+ * the suite reported one walk throughout: the test that drove a real
+ * `Manifest` drove manifest mode, where `fromConfig` is never called, and the
+ * test that drove this file directly asserted the second walk as the intended
+ * contract (issue #65).
  *
  * Two things this must not do, both of which look right and are not:
  *
@@ -50,19 +52,17 @@ export const UPSTREAM_BATCH_SIZE = 10;
  * walkPageSize is how many commits one page of a walk with this batch size
  * carries: what the replay stops on, and what the shared read fetches with.
  *
- * Anything but a usable size is release-please's own default, which is what
- * that walk would have paged at: its `Manifest` resolves a batch size with
- * `||`, so zero and the empty string reach `mergeCommitIterator` as ten. A
- * repository can also declare a *string* in `commit-batch-size`, which
- * release-please passes on and GitHub rejects; there is no page size to
- * describe there, and the default is the honest guess. What it must not be is
- * `NaN`, which is a page nothing fits in: a loop that yields nothing, never
- * ends, and never awaits, so nothing on the runner can interrupt it.
+ * A usable size is a whole number of commits, because that is what upstream's
+ * query takes — `$num` is an `Int!`. Anything else is release-please's own
+ * default, which is either what that walk pages at or the closest thing to it
+ * there is: its `Manifest` resolves a batch size with `||`, so a zero reaches
+ * `mergeCommitIterator` as ten, while a string or a fraction is passed on for
+ * GitHub to reject, and a run that cannot happen has no page size to
+ * describe.
  */
 export function walkPageSize(batchSize: unknown): number {
-  return typeof batchSize === "number" && batchSize >= 1
-    ? Math.floor(batchSize)
-    : UPSTREAM_BATCH_SIZE;
+  const whole = typeof batchSize === "number" && Number.isInteger(batchSize);
+  return whole && batchSize >= 1 ? batchSize : UPSTREAM_BATCH_SIZE;
 }
 
 /**
@@ -140,11 +140,12 @@ export function commitSource(
    * REST calls, against the round trips per page the shared walk saves.
    *
    * The page size is one for all of them, and upstream counts a merge
-   * commit's pull requests per page, so a commit at a page boundary can
-   * resolve to a different associated pull request than it would have. The
-   * consumer that reads file lists is handed the page size its own run uses,
-   * and the release search reads a pull request's branch and title, which do
-   * not turn on that count.
+   * commit's pull requests per page — which decides whether a commit's file
+   * list is its pull request's or a backfill of its own diff, and, for a
+   * commit GitHub associates with more than one pull request, which of them
+   * the commit carries. Neither reaches an answer: the consumer that reads
+   * file lists is handed the page size its own run uses, and the release
+   * search reads no files.
    *
    * `maxResults` is deliberately absent. A cap here could not be any
    * consumer's own: release-please stops between pages rather than between
@@ -154,10 +155,10 @@ export function commitSource(
    * needs to bound it: the walk is pulled one commit at a time, so a page
    * nobody reads is a page never fetched.
    */
-  const walkOptions = {
+  const walkOptions: Parameters<GitHub["mergeCommitIterator"]>[1] = {
     backfillFiles: true,
     ...(options.batchSize === undefined ? {} : { batchSize: options.batchSize }),
-  } as Parameters<GitHub["mergeCommitIterator"]>[1];
+  };
 
   // The branch the cache holds the history of. A walk over another one is a
   // different history and is delegated rather than answered wrongly.
@@ -240,9 +241,14 @@ export function commitSource(
     // resolve it: see walkPageSize.
     const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
     const page = walkPageSize(iteratorOptions?.batchSize);
-    for (let n = 0; n < maxResults; ) {
-      for (let i = 0; i < page; i++, n++) {
-        const commit = await at(n);
+    // The outer loop counts pages rather than the commits the inner one
+    // yielded, so a page size that fits nothing ends the walk instead of
+    // spinning on it. `walkPageSize` is what keeps that from happening at
+    // all; this is what keeps the mistake reportable, since a loop that
+    // neither advances nor awaits cannot be timed out by anything.
+    for (let start = 0; start < maxResults; start += page) {
+      for (let i = 0; i < page; i++) {
+        const commit = await at(start + i);
         if (!commit) return;
         yield commit;
       }

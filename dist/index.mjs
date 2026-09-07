@@ -61820,7 +61820,8 @@ function drainBoundaries() {
 // src/commits.ts
 var UPSTREAM_BATCH_SIZE = 10;
 function walkPageSize(batchSize) {
-  return typeof batchSize === "number" && batchSize >= 1 ? Math.floor(batchSize) : UPSTREAM_BATCH_SIZE;
+  const whole = typeof batchSize === "number" && Number.isInteger(batchSize);
+  return whole && batchSize >= 1 ? batchSize : UPSTREAM_BATCH_SIZE;
 }
 function commitSource(github, options = {}) {
   if (typeof github.mergeCommitIterator !== "function") return github;
@@ -61884,9 +61885,9 @@ function commitSource(github, options = {}) {
     }
     const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
     const page = walkPageSize(iteratorOptions?.batchSize);
-    for (let n = 0; n < maxResults; ) {
-      for (let i = 0; i < page; i++, n++) {
-        const commit = await at(n);
+    for (let start = 0; start < maxResults; start += page) {
+      for (let i = 0; i < page; i++) {
+        const commit = await at(start + i);
         if (!commit) return;
         yield commit;
       }

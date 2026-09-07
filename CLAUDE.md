@@ -440,11 +440,16 @@ and sends the second to a fresh walk, in both passes -- every page fetched
 twice, and 25 serial pages of ten before the real walk even starts, because
 release-please passes no batch size to the release search. `fromConfig` is
 plain mode only, and this repository releases in plain mode, so it paid three
-walks per pull request from the day the cache was written. What showed one was
-the suite: every test that counted walks drove manifest mode, and the fixture
-that could have caught it is the one nobody had pointed at `fromConfig`
-(issue #65). A per-mode difference in what release-please *calls* wants a test
-in each mode, not a fixture in the convenient one.
+walks per pull request from the day the cache was written, with the suite
+reporting one throughout (issue #65).
+
+**How a walk count stays green while being the wrong number.** The test that
+drove a real `Manifest` drove manifest mode, which never calls `fromConfig`;
+the tests that drove `commits.ts` directly went nowhere near release-please,
+and one of them pinned the second walk as the *intended* contract. Both were
+passing tests about the walk count. A per-mode difference in what
+release-please calls is only visible to a test that drives the caller in each
+mode -- which is what the plain-mode fixture in `commits.test.ts` now is.
 
 So there is one read, and each consumer's cap is applied when it is replayed.
 Two things that has to get right: the read is started `backfillFiles: true`
