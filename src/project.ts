@@ -22,7 +22,7 @@ import type {
 } from "release-please";
 import { armBoundaryWatch, drainBoundaries } from "./boundary.js";
 import type { UnresolvedBoundary } from "./boundary.js";
-import { historySource } from "./history.js";
+import { historySource, walkPageSize } from "./history.js";
 import type { CommitFiles } from "./history.js";
 import { componentOfBranch } from "./conventional.js";
 import { ROOT_PACKAGE_PATH, splitFiles } from "./split.js";
@@ -552,14 +552,24 @@ export async function project(options: ProjectOptions): Promise<Projection> {
   // has to describe the release-please run the merge will get, not a
   // differently configured one. Plain mode has no config file to tune them in.
   const tuned = plain ? {} : options.config;
+  const configuredBatchSize = tuned["commit-batch-size"];
   const manifestOptions = {
     ...(tuned["commit-search-depth"] === undefined
       ? { commitSearchDepth: COMMIT_SEARCH_DEPTH }
       : {}),
-    ...(tuned["commit-batch-size"] === undefined
+    ...(configuredBatchSize === undefined
       ? { commitBatchSize: COMMIT_BATCH_SIZE }
       : {}),
   };
+  // What the shared walk pages at, resolved the way release-please's own run
+  // resolves it: the repository's value where it declares a usable one, this
+  // action's where it declares none, and release-please's own default where
+  // it declares something release-please discards -- which is what
+  // `commitBatchSize || DEFAULT_COMMIT_BATCH_SIZE` does with a zero.
+  const walkBatchSize =
+    configuredBatchSize === undefined
+      ? COMMIT_BATCH_SIZE
+      : walkPageSize(configuredBatchSize);
 
   /** build makes a Manifest the way this repository is configured. Both
    * statics are release-please's public surface. */
@@ -582,11 +592,14 @@ export async function project(options: ProjectOptions): Promise<Projection> {
 
   // Both passes read the branch's commits, the releases and the tags through
   // one walk each, cached between them, and both serve commit file lists from
-  // the checkout when there is one.
-  const source = historySource(
-    options.github,
-    options.commitFiles ? { files: options.commitFiles } : {},
-  );
+  // the checkout when there is one. Every question either pass asks of the
+  // branch's commits is answered from the one walk, which is why the page size
+  // goes here as well as to the manifest: the release search release-please
+  // runs first passes none of its own, and would otherwise page at ten.
+  const source = historySource(options.github, {
+    ...(options.commitFiles ? { files: options.commitFiles } : {}),
+    batchSize: walkBatchSize,
+  });
 
   const view = viewWithPullRequest(
     source,

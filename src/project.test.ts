@@ -11,6 +11,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { setLogger } from "release-please";
+import { UPSTREAM_BATCH_SIZE } from "./history.js";
 import { fakeScm, RELEASE_SHA, walkRecord } from "./fake-scm.fixture.js";
 import type { WalkRecord } from "./fake-scm.fixture.js";
 import {
@@ -852,9 +853,14 @@ describe("the commit walk", () => {
 
   it("asks for pages ten times the size release-please defaults to", async () => {
     const record = await walked({});
-    expect(record.walks[0]?.options).toMatchObject({
+    // No cap is written here. The one read serves several consumers asking
+    // different depths -- in plain mode the release search asks 250 and the
+    // pull request build asks 500 -- so each cap is applied when the cache is
+    // replayed rather than to the read itself, which nothing may truncate.
+    // See src/history.ts.
+    expect(record.walks[0]?.options).toEqual({
       batchSize: COMMIT_BATCH_SIZE,
-      maxResults: COMMIT_SEARCH_DEPTH,
+      backfillFiles: true,
     });
   });
 
@@ -865,10 +871,42 @@ describe("the commit walk", () => {
     const record = await walked({
       config: { ...CONFIG, "commit-batch-size": 25, "commit-search-depth": 40 },
     });
-    expect(record.walks[0]?.options).toMatchObject({
+    expect(record.walks[0]?.options).toEqual({
       batchSize: 25,
-      maxResults: 40,
+      backfillFiles: true,
     });
+  });
+
+  it("pages as release-please will, when the configured size is one it drops", async () => {
+    // release-please resolves its batch size with `||`, so a zero reaches the
+    // walk as ten -- and the shared read has to fetch in the pages the run
+    // being projected fetches in, not in this action's larger ones.
+    const record = await walked({ config: { ...CONFIG, "commit-batch-size": 0 } });
+    expect(record.walks[0]?.options).toEqual({
+      batchSize: UPSTREAM_BATCH_SIZE,
+      backfillFiles: true,
+    });
+  });
+
+  it("stops reading where the configured search depth does", async () => {
+    // The other half of the same rule, and the one a cap on the shared read
+    // would have broken: the depth this run gets is the repository's, applied
+    // as release-please applies it -- between pages, so a walk capped at 40
+    // in pages of 25 reads 50.
+    const record = await walked({
+      config: { ...CONFIG, "commit-batch-size": 25, "commit-search-depth": 40 },
+      commits: 250,
+    });
+    expect(record.yielded).toHaveLength(50);
+  });
+
+  it("stops reading at the depth release-please defaults to", async () => {
+    // The default written out in project.ts, checked the only way it is now
+    // observable: a walk long enough to reach it. It bounds the read because
+    // the local commit-file index is built to the same number, so a deeper
+    // walk would go to the API for what the index stops short of.
+    const record = await walked({ commits: COMMIT_SEARCH_DEPTH + 100 });
+    expect(record.yielded).toHaveLength(COMMIT_SEARCH_DEPTH);
   });
 
   it("stops itself where release-please says, not where this does", async () => {

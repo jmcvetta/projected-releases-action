@@ -1,7 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { GitHub, setLogger } from "release-please";
 import type { Commit, GitHub as GitHubType } from "release-please";
-import { historySource } from "./history.js";
+import {
+  commitCap,
+  historySource,
+  UPSTREAM_BATCH_SIZE,
+  walkPageSize,
+} from "./history.js";
 import { startFakeGitHub } from "./fake-github-server.fixture.js";
 import { project } from "./project.js";
 
@@ -18,22 +23,29 @@ beforeAll(() => {
 });
 
 /** history is a client whose walk can be watched: how many times it was
- * started, and which commits it actually handed out. */
+ * started, what each of those was asked for, and which commits it actually
+ * handed out. */
 function history(shas: string[]): {
   github: GitHubType;
   walks: number;
+  started: { targetBranch: string; options: unknown }[];
   yielded: string[];
   backfilled: string[];
 } {
   const state = {
     walks: 0,
+    started: [] as { targetBranch: string; options: unknown }[],
     yielded: [] as string[],
     backfilled: [] as string[],
     github: undefined as unknown as GitHubType,
   };
   state.github = {
-    async *mergeCommitIterator(): AsyncGenerator<Commit> {
+    async *mergeCommitIterator(
+      targetBranch: string,
+      options?: unknown,
+    ): AsyncGenerator<Commit> {
       state.walks += 1;
+      state.started.push({ targetBranch, options });
       for (const sha of shas) {
         state.yielded.push(sha);
         yield { sha, message: "fix: a thing", files: [] };
@@ -47,13 +59,20 @@ function history(shas: string[]): {
   return state as never;
 }
 
+/** shas names `count` commits, so a walk long enough to be capped can be
+ * written without spelling one out per line. */
+function shas(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `c${i}`);
+}
+
 async function walk(
   github: GitHubType,
   options?: Parameters<GitHubType["mergeCommitIterator"]>[1],
   stopAfter = Number.POSITIVE_INFINITY,
+  targetBranch = "master",
 ): Promise<string[]> {
   const out: string[] = [];
-  for await (const commit of github.mergeCommitIterator("master", options)) {
+  for await (const commit of github.mergeCommitIterator(targetBranch, options)) {
     out.push(commit.sha);
     if (out.length >= stopAfter) break;
   }
@@ -86,29 +105,113 @@ describe("the cached walk", () => {
     expect(client.yielded).toEqual(["a", "b", "c", "d"]);
   });
 
-  it("gives a walk asking a different question a cache of its own", async () => {
-    // Not one cache and a re-read for everything else. In plain mode
+  it("answers a walk asking for a different depth from the same read", async () => {
+    // The branch keys this walk, and nothing else does. In plain mode
     // release-please asks two commit questions -- `latestReleaseVersion` wants
     // 250 commits with no file lists, `buildPullRequests` wants the deep
-    // backfilling walk -- and the cheap one is asked first. A single-slot
-    // cache is claimed by it, and the expensive walk is then paid for twice.
+    // backfilling walk -- and both are questions about one history. Keyed on
+    // the options, the second is a fresh walk over pages the first already
+    // fetched (issue #65).
     const client = history(["a", "b"]);
     const source = historySource(client.github);
 
-    await walk(source, { maxResults: 500 });
-    await walk(source, { maxResults: 50 });
-    expect(client.walks).toBe(2);
+    await walk(source, { maxResults: 250 });
+    await walk(source, { maxResults: 500, backfillFiles: true, batchSize: 100 });
+    expect(client.walks).toBe(1);
+    expect(client.yielded).toEqual(["a", "b"]);
+  });
 
-    // And each of them is now answered from its own cache.
-    await walk(source, { maxResults: 500 });
-    await walk(source, { maxResults: 50 });
-    expect(client.walks).toBe(2);
+  it("starts that read backfilled and at the page size it was given", async () => {
+    // The read everything else is served from has to carry the file lists the
+    // backfilling consumer needs: a commit fetched without them cannot be
+    // upgraded afterwards. Its cap is not written here -- it is each
+    // consumer's, applied to what that consumer is handed.
+    const client = history(["a"]);
+    const source = historySource(client.github, { batchSize: 100 });
 
-    // No options and empty options are one question, because upstream
-    // defaults the argument to `{}` and cannot tell them apart either.
-    await walk(source);
-    await walk(source, {});
-    expect(client.walks).toBe(3);
+    await walk(source, { maxResults: 250 });
+    expect(client.started).toEqual([
+      {
+        targetBranch: "master",
+        options: { backfillFiles: true, batchSize: 100 },
+      },
+    ]);
+  });
+
+  it("stops where release-please would, at a whole page", async () => {
+    // Upstream checks its cap between pages, not between commits, so a walk
+    // overshoots to the end of the page the cap falls in. What reads those
+    // extra commits is `latestReleaseVersion`, which accepts a release only if
+    // its sha is one the walk handed over -- so a replay stopping anywhere
+    // else answers a question release-please never asked.
+    const client = history(shas(40));
+    const source = historySource(client.github);
+
+    expect(await walk(source, { maxResults: 25 })).toHaveLength(30);
+    expect(await walk(source, { maxResults: 25, batchSize: 100 })).toHaveLength(
+      40,
+    );
+    expect(await walk(source, { maxResults: 25, batchSize: 5 })).toHaveLength(
+      25,
+    );
+    expect(client.walks).toBe(1);
+  });
+
+  it("reads no further than the deepest consumer asked for", async () => {
+    // Nothing caps the shared read, so what bounds it is that it is pulled a
+    // commit at a time: a page nobody reads is a page never fetched.
+    const client = history(shas(40));
+    const source = historySource(client.github);
+
+    await walk(source, { maxResults: 10 });
+    expect(client.yielded).toHaveLength(10);
+  });
+
+  it("keys the read by branch, since another branch is another history", async () => {
+    const client = history(["a", "b"]);
+    const source = historySource(client.github);
+
+    await walk(source, undefined, Number.POSITIVE_INFINITY, "master");
+    await walk(source, undefined, Number.POSITIVE_INFINITY, "next");
+    expect(client.started.map((s) => s.targetBranch)).toEqual([
+      "master",
+      "next",
+    ]);
+  });
+
+  it("pages at the size release-please resolved, whatever it was given", async () => {
+    // A repository can write anything in `commit-batch-size`, and
+    // release-please hands the value back rather than validating it.
+    expect(walkPageSize(25)).toBe(25);
+    // What release-please's own `commitBatchSize || DEFAULT` resolves a zero
+    // to, and what the rest are worth to a query whose `$num` is an `Int!`.
+    expect(walkPageSize(0)).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize(undefined)).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize("auto")).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize(2.5)).toBe(UPSTREAM_BATCH_SIZE);
+    expect(walkPageSize(Number.NaN)).toBe(UPSTREAM_BATCH_SIZE);
+
+    // And the cap that page size rounds to. A cap that is not a number ends
+    // the walk at once, which is what upstream's `results < maxResults` does
+    // with one; an absent cap arrives here as unlimited and stays that way.
+    expect(commitCap(250, 10)).toBe(250);
+    expect(commitCap(250, 100)).toBe(300);
+    expect(commitCap(0, 10)).toBe(0);
+    expect(commitCap(Number.POSITIVE_INFINITY, 100)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
+    expect(commitCap(Number.NaN, 10)).toBeNaN();
+  });
+
+  it("replays at that size, so a walk given no usable one pages at ten", async () => {
+    const client = history(shas(40));
+    const source = historySource(client.github);
+
+    const seen = await walk(source, {
+      maxResults: 25,
+      batchSize: "auto",
+    } as unknown as Parameters<GitHubType["mergeCommitIterator"]>[1]);
+    expect(seen).toHaveLength(30);
   });
 
   it("tells a later consumer that the walk failed, rather than ending it", async () => {
@@ -694,15 +797,15 @@ describe("the release and tag walks a projection makes", () => {
       expect(
         fake.requests.filter((r) => r === "GET /repos/acme/widgets/tags"),
       ).toEqual(["GET /repos/acme/widgets/tags"]);
-      // And the commit walks, which is what the caches are keyed for. Plain
-      // mode is the mode with two commit questions -- 250 commits with no
-      // file lists for `latestReleaseVersion`, the deep backfilling walk for
-      // `buildPullRequests` -- so two is the floor, one per question. A
-      // single-slot cache is claimed by the first and reads the second afresh
-      // in both passes, which is three.
+      // And the commit walk. Plain mode is the mode with two commit questions
+      // -- 250 commits with no file lists for `latestReleaseVersion`, the deep
+      // backfilling walk for `buildPullRequests` -- and they are two questions
+      // about one history, so one read answers both across both passes. Keyed
+      // on the options that is two; keyed on the options with a single slot,
+      // which is where this started, three.
       expect(
         fake.graphql.filter((query) => query === "pullRequestsSince"),
-      ).toEqual(["pullRequestsSince", "pullRequestsSince"]);
+      ).toEqual(["pullRequestsSince"]);
     } finally {
       await fake.close();
     }

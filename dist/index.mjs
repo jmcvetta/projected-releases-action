@@ -61822,6 +61822,14 @@ function drainBoundaries() {
 }
 
 // src/history.ts
+var UPSTREAM_BATCH_SIZE = 10;
+function walkPageSize(batchSize) {
+  const whole = typeof batchSize === "number" && Number.isInteger(batchSize);
+  return whole && batchSize >= 1 ? batchSize : UPSTREAM_BATCH_SIZE;
+}
+function commitCap(maxResults, page) {
+  return Math.ceil(maxResults / page) * page;
+}
 function sharedWalk() {
   const slots = /* @__PURE__ */ new Map();
   const at = (slot, n) => {
@@ -61885,11 +61893,19 @@ function historySource(github, options = {}) {
       return serve(sha) ?? await github.getCommitFiles(sha);
     };
   }
+  const walkOptions = {
+    backfillFiles: true,
+    ...options.batchSize === void 0 ? {} : { batchSize: options.batchSize }
+  };
   const commits = sharedWalk();
   source.mergeCommitIterator = function(targetBranch, iteratorOptions) {
     return commits(
-      question(targetBranch, iteratorOptions ?? {}),
-      () => github.mergeCommitIterator.call(source, targetBranch, iteratorOptions)
+      question(targetBranch),
+      () => github.mergeCommitIterator.call(source, targetBranch, walkOptions),
+      commitCap(
+        iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY,
+        walkPageSize(iteratorOptions?.batchSize)
+      )
     );
   };
   if (typeof github.releaseIterator === "function") {
@@ -62251,10 +62267,12 @@ async function project(options) {
     [manifestFile]: options.manifest
   };
   const tuned = plain ? {} : options.config;
+  const configuredBatchSize = tuned["commit-batch-size"];
   const manifestOptions = {
     ...tuned["commit-search-depth"] === void 0 ? { commitSearchDepth: COMMIT_SEARCH_DEPTH } : {},
-    ...tuned["commit-batch-size"] === void 0 ? { commitBatchSize: COMMIT_BATCH_SIZE } : {}
+    ...configuredBatchSize === void 0 ? { commitBatchSize: COMMIT_BATCH_SIZE } : {}
   };
+  const walkBatchSize = configuredBatchSize === void 0 ? COMMIT_BATCH_SIZE : walkPageSize(configuredBatchSize);
   const build = (github) => plain ? import_release_please3.Manifest.fromConfig(
     github,
     options.commit.baseBranch,
@@ -62268,10 +62286,10 @@ async function project(options) {
     manifestFile,
     manifestOptions
   );
-  const source = historySource(
-    options.github,
-    options.commitFiles ? { files: options.commitFiles } : {}
-  );
+  const source = historySource(options.github, {
+    ...options.commitFiles ? { files: options.commitFiles } : {},
+    batchSize: walkBatchSize
+  });
   const view = viewWithPullRequest(
     source,
     options.commit,

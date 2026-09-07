@@ -28,10 +28,12 @@
  * at its cap rather than reading past it — one page fewer, in fact, than
  * upstream's own capped walk fetches when the cap lands on a page boundary.
  *
- * So every walk is memoized, one cache per distinct set of options. A cache is
- * filled by the first consumer as it is consumed, and a later one replays it
- * and continues the same upstream iterator where the first one stopped — never
- * a fresh one, which would ask for the same pages again.
+ * So every walk is memoized. A cache is filled by the first consumer as it is
+ * consumed, and a later one replays it and continues the same upstream
+ * iterator where the first one stopped — never a fresh one, which would ask
+ * for the same pages again. Releases and tags get one cache per distinct set
+ * of options; the branch's commits get one, whatever is asked of them, with
+ * each consumer's cap applied to what it is handed (issue #65).
  *
  * Three things this must not do, each of which looks right and is not:
  *
@@ -42,12 +44,16 @@
  *   nothing for the second to continue from, and both the commit walk and the
  *   release walk are stopped early in exactly this way. Pulling one item at a
  *   time keeps the upstream generator merely suspended.
- * - **Cache one walk and re-read the rest.** release-please asks two different
- *   commit questions in plain mode — `latestReleaseVersion` wants 250 commits
- *   with no file lists, `buildPullRequests` wants the deep backfilling walk —
- *   and the cheap one is asked first. A single-slot cache is claimed by it,
- *   which leaves the expensive walk, the one issue #54 was about, read afresh
- *   in both passes with nothing on screen to say so.
+ * - **Answer only the question asked first.** release-please asks two
+ *   different commit questions in plain mode — `latestReleaseVersion` wants
+ *   250 commits with no file lists, `buildPullRequests` wants the deep
+ *   backfilling walk — and the cheap one is asked first. A cache keyed on the
+ *   options is claimed by it, which leaves the expensive walk, the one issue
+ *   #54 was about, read afresh in both passes with nothing on screen to say
+ *   so. What the two questions differ in is how much of one history they want
+ *   and whether they read its file lists, so one read serves both — and this
+ *   repository, which releases in plain mode, paid for three walks per pull
+ *   request until it did (issue #65).
  * - **Let a walk that failed look like a walk that ended.** A generator that
  *   threw is completed, so pulling it again answers `done` — and a second
  *   consumer served that sees a short history rather than an error. The error
@@ -81,6 +87,59 @@ export type CommitFiles = (sha: string) => string[] | undefined;
 export interface HistorySourceOptions {
   /** files serves commit file lists, when something cheaper than the API can. */
   files?: CommitFiles;
+  /**
+   * batchSize is how many commits one page of the shared commit walk carries.
+   *
+   * It is the size the projection's own release-please run walks with, so the
+   * one read pages as coarsely as the consumer that matters. Left unset it is
+   * release-please's default of ten, which is 25 serial pages to reach a
+   * release pull request 250 commits back.
+   */
+  batchSize?: number;
+}
+
+/**
+ * UPSTREAM_BATCH_SIZE is the page size release-please walks with when the
+ * caller names none — `mergeCommitsGraphQL`'s `first: $num` default, and what
+ * its `Manifest` falls back to for a batch size it discards.
+ */
+export const UPSTREAM_BATCH_SIZE = 10;
+
+/**
+ * walkPageSize is how many commits one page of a walk with this batch size
+ * carries: what a replayed cap rounds to, and what the shared read fetches
+ * with.
+ *
+ * A usable size is a whole number of commits, because that is what upstream's
+ * query takes — `$num` is an `Int!`. Anything else is release-please's own
+ * default, which is either what that walk pages at or the closest thing to it
+ * there is: its `Manifest` resolves a batch size with `||`, so a zero reaches
+ * `mergeCommitIterator` as ten, while a string or a fraction is passed on for
+ * GitHub to reject, and a run that cannot happen has no page size to
+ * describe.
+ */
+export function walkPageSize(batchSize: unknown): number {
+  const whole = typeof batchSize === "number" && Number.isInteger(batchSize);
+  return whole && batchSize >= 1 ? batchSize : UPSTREAM_BATCH_SIZE;
+}
+
+/**
+ * commitCap is how many commits `mergeCommitIterator` yields for a cap of
+ * `maxResults` at this page size: the cap rounded up to a whole page.
+ *
+ * That is the arithmetic behind moving the commit walk's cap to replay.
+ * Upstream fetches a page, yields **all** of it, and only then re-checks the
+ * cap, so 250 at a page of 10 is 250 commits and at 100 it is 300. The
+ * difference is not cosmetic — `latestReleaseVersion` accepts a release only
+ * when its sha is one the walk handed over, so a replay that stops anywhere
+ * else answers a question release-please never asked.
+ *
+ * An absent cap is unlimited and stays unlimited; a cap that is not a number
+ * yields nothing, which is what upstream's `results < maxResults` does with
+ * one.
+ */
+export function commitCap(maxResults: number, page: number): number {
+  return Math.ceil(maxResults / page) * page;
 }
 
 /**
@@ -118,19 +177,16 @@ interface Slot<T> {
  * `maxResults` does to it — applied here rather than upstream so that
  * consumers wanting different amounts of the *same* walk still share one.
  *
- * Only the release and tag walks may take their cap that way, and the commit
- * walk must not be "tidied" to match. A cap moves to replay only where
- * upstream honours it exactly. `releaseIterator` and `tagIterator` break
- * inside the page and yield exactly `maxResults`, so replay is equivalent.
- * `mergeCommitIterator` does not: it fetches a page, yields **all** of it,
- * and only then re-checks the cap (github.js), so it overshoots to the next
- * page boundary. Both callers ask for an exact multiple today —
- * `latestReleaseVersion` for 250 at the default page size of 10,
- * `buildPullRequests` for 500 at this action's 100 — which is precisely why
- * moving the cap would fail nothing. A repository that tunes
- * `commit-search-depth` to 450 gets 500 commits from release-please and would
- * get 450 from a replay cap, and a release whose sha sits in the fifty it
- * lost stops counting as on-branch: a different last released version, with
+ * A cap moves to replay only where the replay stops exactly where upstream
+ * would have, and the three walks do not stop the same way. `releaseIterator`
+ * and `tagIterator` break inside the page and yield exactly `maxResults`, so
+ * the cap is `maxResults`. `mergeCommitIterator` fetches a page, yields
+ * **all** of it, and only then re-checks the cap (github.js), so it overshoots
+ * to the next page boundary: its cap is `commitCap`, the cap rounded up to a
+ * whole page of the size that consumer asked for. Hand it `maxResults`
+ * instead and a repository tuning `commit-search-depth` to 450 gets 450 where
+ * release-please gives 500, and a release whose sha sits in the fifty it lost
+ * stops counting as on-branch — a different last released version, with
  * nothing reporting it.
  */
 function sharedWalk<T>(): (
@@ -267,18 +323,62 @@ export function historySource(
     };
   }
 
+  // The options the one shared commit walk is started with.
+  //
+  // `backfillFiles` is on regardless of what a consumer asks for, because a
+  // commit fetched without it cannot be upgraded afterwards: upstream reads
+  // `pageInfo.hasNextPage` on the pull request's file list to decide whether a
+  // REST call is needed, and the commit it yields does not carry that flag. So
+  // the walk that fills the cache is the backfilling one, and a consumer that
+  // asked for no file lists is handed commits carrying them anyway, which it
+  // does not read.
+  //
+  // That is not free, and the release search is the consumer it is not free
+  // for. It can reach *further* than the pull request build, which stops at
+  // the release boundary, and upstream backfills a whole page before yielding
+  // its first commit -- so replaying 250 commits to it backfills the 300 the
+  // shared walk fetched, where release-please would have walked those 250 in
+  // pages of ten with no file lists at all. Where the checkout is deep the
+  // index in git.ts answers every one of them; where it is shallow they are
+  // REST calls, against the round trips per page the shared walk saves.
+  //
+  // The page size is one for all of them, and upstream counts a merge commit's
+  // pull requests per page -- which decides whether a commit's file list is
+  // its pull request's or a backfill of its own diff, and, for a commit GitHub
+  // associates with more than one pull request, which of them the commit
+  // carries. The file lists are safe: the consumer that reads them is handed
+  // the page size its own run uses, and the release search reads no files.
+  // Which pull request a commit carries is not proved safe, only narrow -- it
+  // takes a commit that GitHub associates with a second pull request, sharing
+  // its page with another commit of the first, at a boundary the finer pages
+  // did not have.
+  //
+  // No cap is written here. Every consumer's is applied to what it is handed,
+  // and the walk is pulled one commit at a time, so it fetches no page nobody
+  // asked to read.
+  const walkOptions: Parameters<GitHub["mergeCommitIterator"]>[1] = {
+    backfillFiles: true,
+    ...(options.batchSize === undefined ? {} : { batchSize: options.batchSize }),
+  };
+
   const commits = sharedWalk<Commit>();
   source.mergeCommitIterator = function (
     targetBranch: string,
     iteratorOptions?: Parameters<GitHub["mergeCommitIterator"]>[1],
   ): AsyncGenerator<Commit> {
-    // The whole options object, because every field of it changes what the
-    // walk yields -- the cap, whether file lists are backfilled, the page
-    // size. `latestReleaseVersion` asks for 250 commits with none of the rest,
-    // which is not the walk `buildPullRequests` asks for, so in plain mode
-    // these are two questions and each gets a cache of its own.
-    return commits(question(targetBranch, iteratorOptions ?? {}), () =>
-      github.mergeCommitIterator.call(source, targetBranch, iteratorOptions),
+    // The branch and nothing else, because one read answers every question
+    // asked of that branch. `latestReleaseVersion` asks for 250 commits with
+    // no file lists and `buildPullRequests` for the deep backfilling walk, so
+    // keying on the options gave those two separate walks over the same pages
+    // -- read once here, and the difference between them is applied below
+    // (issue #65).
+    return commits(
+      question(targetBranch),
+      () => github.mergeCommitIterator.call(source, targetBranch, walkOptions),
+      commitCap(
+        iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY,
+        walkPageSize(iteratorOptions?.batchSize),
+      ),
     );
   } as GitHub["mergeCommitIterator"];
 

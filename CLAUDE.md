@@ -431,25 +431,58 @@ seconds became a 183-second step on `jmcvetta/career` (issue #54).
 `history.ts` memoizes the walk, and `pr-view.ts`'s synthetic commit is yielded
 in front of it.
 
+**The cache is keyed on the target branch, and keying it on the options was a
+bug that hid in this repository's own mode.** One pass asks the history more
+than one question: `Manifest.fromConfig` resolves the last release first at
+`{maxResults: 250}`, and `buildPullRequests` then asks `{maxResults: 500,
+backfillFiles: true, batchSize: 100}`. An option-keyed cache answers the first
+and sends the second to a fresh walk, in both passes: the release search is
+the one that gets cached, and every page the pull request build reads is
+fetched twice. The release search also pages at ten, release-please passing it
+no batch size -- 25 serial pages where it finds no release pull request at
+all, and one page where the newest commit is a release. `fromConfig` is plain
+mode only, and this repository releases in plain mode, so it paid three walks
+per pull request from the day the cache was written, with the suite reporting
+one throughout (issue #65).
+
+**How a walk count stays green while being the wrong number.** The test that
+drove a real `Manifest` drove manifest mode, which never calls `fromConfig`;
+the tests that drove the cache directly went nowhere near release-please,
+and one of them pinned the second walk as the *intended* contract. Both were
+passing tests about the walk count. A per-mode difference in what
+release-please calls is only visible to a test that drives the caller in each
+mode -- which is what the plain-mode fixture in `history.test.ts` now is.
+
+So there is one read, and each consumer's cap is applied when it is replayed.
+Two things that has to get right: the read is started `backfillFiles: true`
+whatever asked for it first, because a commit fetched without it **cannot be
+upgraded afterwards** -- upstream decides on the REST call from
+`pageInfo.hasNextPage` on the pull request's file list, and the commit it
+yields does not carry that flag; and the replay stops in whole pages of the
+size *that consumer* asked for, because release-please checks its cap between
+pages rather than between commits. 250 at a batch of 10 is 250 commits and at
+100 it is 300, and `latestReleaseVersion` accepts a release only when its sha
+is one the walk handed over -- so a replay that stops anywhere else answers a
+question release-please never asked.
+
 **Do not delegate to the upstream iterator with `yield*`.** release-please
 stops a walk by breaking out of a `for await`, which calls `return()` on the
 generator it is reading, and `yield*` forwards that upstream -- closing the
 shared walk for good and leaving the second pass with only what the first
 happened to need. Pulling one commit at a time leaves it suspended instead.
 
-**One cache per set of options, not one cache.** A walk asked for with
-different options is a different walk and cannot be answered from the same
-cache -- `backfillFiles` decides whether the commits carry file lists at all,
-and serving a non-backfilled commit to a consumer expecting one attributes it
-to no component and silently releases nothing. But caching only the first
-question and re-reading everything else is worse than it looks, because
-**plain mode asks two**: `latestReleaseVersion` wants 250 commits with no file
-lists and `buildPullRequests` wants the deep backfilling walk, and the cheap
-one is asked first. A single-slot cache is claimed by it, and the expensive
-walk -- the one issue #54 is about -- is read afresh in *both* passes. This
-repository is plain mode, so it was itself the case that mattered. Three
-`pullRequestsSince` queries per projection where two is the floor, measured on
-the fake HTTP server and asserted there now.
+**One cache per set of options for the releases and the tags, and one read
+per branch for the commits.** A release walk asked for with different options
+is a different walk and cannot be answered from the same cache. The two commit
+questions are not that: `latestReleaseVersion` wants 250 commits with no file
+lists and `buildPullRequests` wants the deep backfilling walk, which is two
+amounts of one history and whether its file lists are read. Answering only the
+first -- the cheap one, asked first -- left the expensive walk, the one issue
+#54 is about, read afresh in both passes; answering each from a cache of its
+own still reads the same pages twice. One read with the file lists on, and the
+rest applied to what each consumer is handed, is one `pullRequestsSince` query
+per projection where three was measured, on the fake HTTP server and asserted
+there now.
 
 **A walk that threw is over, and later consumers are told so.** A generator
 that threw is completed, so pulling it again answers `done` -- which reads to
@@ -493,15 +526,17 @@ for the deepest caller that actually ran, since a capped consumer leaves the
 shared iterator suspended at its cap rather than reading past it. Starting the
 walk capped instead would leave the uncapped caller short.
 
-**Only these two caps may move to replay.** A cap belongs at replay only where
-upstream honours it exactly: `releaseIterator` and `tagIterator` break inside
-the page and yield exactly `maxResults`. `mergeCommitIterator` yields the
+**The three caps move to replay, and they do not round the same way.** A cap
+belongs at replay only where the replay stops where upstream would have.
+`releaseIterator` and `tagIterator` break inside the page and yield exactly
+`maxResults`, so their cap is `maxResults`. `mergeCommitIterator` yields the
 whole page and only then re-checks, so it overshoots to the next page
-boundary -- its cap therefore stays in the question and goes upstream. Both
-commit callers ask for an exact multiple today (250 at the default page size
-of 10, 500 at this action's 100), which is why "tidying" that one to match
-would fail nothing; a repository tuning `commit-search-depth` to 450 would
-then see 450 commits where release-please walks 500.
+boundary: its cap is that number rounded up to a whole page of the size the
+consumer asked for (`commitCap`). Hand it `maxResults` instead and a
+repository tuning `commit-search-depth` to 450 sees 450 commits where
+release-please walks 500 -- and a release whose sha sits in the fifty it lost
+stops counting as on-branch, which is a different last released version with
+nothing reporting it.
 
 The two caps are not read the same way upstream and this does not normalise
 them: `releaseIterator` reads `maxResults` with `??` and honours a zero,
@@ -537,6 +572,23 @@ the local index is built to the same number and an index shallower than the
 walk sends the walk to the API for what it stopped short of. Both are withheld
 when the repository's own config declares them: the projection has to describe
 the release-please run the merge will get, not a differently configured one.
+
+The page size goes to `commitSource` as well as to the manifest, since the
+shared read is the one that fetches; the depth does not, and must not. A cap
+there cannot be any consumer's own depth, because release-please stops
+between pages: a consumer capped at 40 in pages of 25 reads 50, and a read
+stopped at 40 starves it of ten commits -- silently, a short history being
+exactly what a branch with no more commits looks like. Nothing bounds the
+read except that it is pulled one commit at a time: a page nobody reads is a
+page never fetched.
+
+**What always-on backfill costs is paid by the release search.** It can reach
+further than the pull request build, which stops at the release boundary,
+and upstream backfills a whole page before yielding its first commit -- so
+replaying 250 commits to it backfills the 300 the read fetched, where
+release-please would have walked those 250 in pages of ten with no file lists
+at all. Deep checkout: the index answers them. Shallow: they are REST calls,
+traded against the round trips per page the shared read saves.
 
 **The receiver is the part that fails silently.** release-please calls
 `this.getCommitFiles` from inside its own iterator, so an override on a wrapper
