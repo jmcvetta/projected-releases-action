@@ -9,16 +9,22 @@
  * twice. On one where it is not, it is the whole cost paid twice: a measured
  * 103-second walk on `jmcvetta/career` became a 183-second step (issue #54).
  *
- * The releases and the tags are read more times still, because each pass asks
- * for them twice. `Manifest.fromConfig` resolves the last release through
+ * The releases are read more times still, because each pass asks for them
+ * twice. `Manifest.fromConfig` resolves the last release through
  * `latestReleaseVersion`, and `buildPullRequests` walks them again to resolve
- * every component's — so a plain-mode projection listed the releases four
- * times, with identical pages, before this cached them (issue #66). The two
- * callers do not agree on how many they want: `latestReleaseVersion` asks for
- * all of them and `buildPullRequests` caps the walk at the release search
- * depth. So the upstream walk is started uncapped and each consumer's cap is
- * applied to what it is handed, which reads the same pages upstream would
- * have read for the uncapped caller and no more.
+ * every component's — one walk, not one per component — so a plain-mode
+ * projection listed the releases four times, with identical pages, before
+ * this cached them (issue #66). The tags are the fallback each of those
+ * reaches when a release does not resolve, so a repository whose releases all
+ * resolve makes no tag walk at all and one whose releases do not makes as
+ * many as it makes release walks.
+ *
+ * The two release callers do not agree on how many they want:
+ * `latestReleaseVersion` asks for all of them and `buildPullRequests` caps
+ * the walk at the release search depth. So the release walk is started
+ * uncapped and each consumer's cap is applied to what it is handed, which
+ * reads the same pages upstream would have read for the uncapped caller and
+ * no more.
  *
  * So every walk is memoized, one cache per distinct set of options. A cache is
  * filled by the first consumer as it is consumed, and a later one replays it
@@ -185,6 +191,33 @@ function sharedWalk<T>(): (
 }
 
 /**
+ * question names a walk by everything that decides what it yields.
+ *
+ * Object keys are sorted, so two callers that wrote the same options in a
+ * different order ask the same question. Options are carried whole rather
+ * than enumerated field by field: an option this file has never heard of --
+ * one a release-please upgrade adds -- then keys a walk of its own instead of
+ * silently sharing one with a caller that did not pass it. A cache miss is a
+ * recoverable wrong; an answer to a question nobody asked is not.
+ *
+ * That holds for anything JSON can write, which is every option
+ * release-please has ever passed these -- `ScmCommitIteratorOptions`,
+ * `ScmReleaseIteratorOptions` and `ScmTagIteratorOptions` are numbers and
+ * booleans and nothing else. **A function-valued option would key as absent**,
+ * and two callers differing only in one would share a walk. Nothing today is
+ * one; check this when an upgrade adds an option that is not a scalar.
+ */
+function question(...parts: unknown[]): string {
+  return JSON.stringify(parts, (_key, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)),
+        )
+      : value,
+  );
+}
+
+/**
  * historySource wraps a release-please `GitHub` so the repository's history is
  * read once and commit file lists come from the cheapest source available.
  *
@@ -202,26 +235,6 @@ function sharedWalk<T>(): (
  * seam having moved, which is pr-view.ts's error to raise — it is the one that
  * can explain what breaks.
  */
-/**
- * question names a walk by everything that decides what it yields.
- *
- * Object keys are sorted, so two callers that wrote the same options in a
- * different order ask the same question. Options are carried whole rather
- * than enumerated field by field: an option this file has never heard of --
- * one a release-please upgrade adds -- then keys a walk of its own instead of
- * silently sharing one with a caller that did not pass it. A cache miss is a
- * recoverable wrong; an answer to a question nobody asked is not.
- */
-function question(...parts: unknown[]): string {
-  return JSON.stringify(parts, (_key, value: unknown) =>
-    value && typeof value === "object" && !Array.isArray(value)
-      ? Object.fromEntries(
-          Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)),
-        )
-      : value,
-  );
-}
-
 export function historySource(
   github: GitHub,
   options: HistorySourceOptions = {},
@@ -251,7 +264,7 @@ export function historySource(
     // size. `latestReleaseVersion` asks for 250 commits with none of the rest,
     // which is not the walk `buildPullRequests` asks for, so in plain mode
     // these are two questions and each gets a cache of its own.
-    return commits(question(targetBranch, iteratorOptions), () =>
+    return commits(question(targetBranch, iteratorOptions ?? {}), () =>
       github.mergeCommitIterator.call(source, targetBranch, iteratorOptions),
     );
   } as GitHub["mergeCommitIterator"];

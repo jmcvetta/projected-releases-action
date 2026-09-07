@@ -103,6 +103,12 @@ describe("the cached walk", () => {
     await walk(source, { maxResults: 500 });
     await walk(source, { maxResults: 50 });
     expect(client.walks).toBe(2);
+
+    // No options and empty options are one question, because upstream
+    // defaults the argument to `{}` and cannot tell them apart either.
+    await walk(source);
+    await walk(source, {});
+    expect(client.walks).toBe(3);
   });
 
   it("tells a later consumer that the walk failed, rather than ending it", async () => {
@@ -151,14 +157,28 @@ describe("the cached walk", () => {
   });
 
   it("shadows no method the client does not have", () => {
-    // The `history` fixture has the commit iterator and neither of the other
-    // two. Installing an override anyway would turn a moved seam into
-    // `github.releaseIterator is not a function`, thrown from inside a
-    // generator on first consumption rather than where anyone could read it.
-    const source = historySource(history(["a"]).github);
+    // Installing an override over a method that is not there would turn a
+    // moved seam into `github.releaseIterator is not a function`, thrown from
+    // inside a generator on first consumption rather than anywhere a reader
+    // would look. The `history` fixture has the commit iterator and
+    // `getCommitFiles`, and neither of the other two walks.
+    const source = historySource(history(["a"]).github, {
+      files: () => ["local/a.ts"],
+    });
     expect(Object.hasOwn(source, "releaseIterator")).toBe(false);
     expect(Object.hasOwn(source, "tagIterator")).toBe(false);
-    expect(Object.hasOwn(source, "getCommitFiles")).toBe(false);
+    // The file-list override is asked for here and installed, because the
+    // client it would fall back to has the method.
+    expect(Object.hasOwn(source, "getCommitFiles")).toBe(true);
+
+    // And withheld from a client that does not, whose backfill it could only
+    // fail in.
+    const bare = {
+      async *mergeCommitIterator(): AsyncGenerator<Commit> {},
+    } as unknown as GitHubType;
+    expect(
+      Object.hasOwn(historySource(bare, { files: () => ["a.ts"] }), "getCommitFiles"),
+    ).toBe(false);
   });
 });
 
@@ -258,9 +278,10 @@ async function listTags(
 
 /**
  * Each pass asks for the releases twice -- `Manifest.fromConfig` resolves the
- * last release through `latestReleaseVersion` and `buildPullRequests`
- * resolves it again per component -- so a plain-mode projection listed them
- * four times over its two passes, with identical pages (issue #66).
+ * last release through `latestReleaseVersion`, and `buildPullRequests` walks
+ * them again to resolve every component's, in one walk rather than one per
+ * component -- so a plain-mode projection listed them four times over its two
+ * passes, with identical pages (issue #66).
  */
 describe("the cached release walk", () => {
   it("lists the releases once and replays them", async () => {
@@ -308,6 +329,24 @@ describe("the cached release walk", () => {
 
     expect(client.releaseWalks).toBe(2);
     expect(client.releaseOptions).toEqual([{}, { includeDrafts: true }]);
+  });
+
+  it("asks one question however the options were ordered", async () => {
+    // The key is the options object, so it has to be canonical: two callers
+    // writing the same options in a different order are asking the same
+    // thing, and keying them apart would walk the repository twice for one
+    // answer. release-please writes them in one order today; this holds the
+    // property rather than that coincidence.
+    const client = catalogue(["a", "b"]);
+    const source = historySource(client.github);
+    // Two fields beyond the cap, since the cap is taken out of the question
+    // before the key is built and so cannot be the pair that differs.
+    const one = { maxResults: 1, includeDrafts: true, since: "x" } as never;
+    const other = { since: "x", includeDrafts: true, maxResults: 1 } as never;
+
+    for await (const _ of source.releaseIterator(one)) break;
+    for await (const _ of source.releaseIterator(other)) break;
+    expect(client.releaseWalks).toBe(1);
   });
 
   it("continues a walk the first consumer stopped short of", async () => {
@@ -539,11 +578,10 @@ describe("the release and tag walks a projection makes", () => {
     expect(seen.graphql.filter((query) => query === "pullRequestsSince")).toEqual(
       ["pullRequestsSince"],
     );
-    // And the tags, which release-please lists even here, where the releases
-    // resolve every component: once per pass before this shared them.
-    expect(
-      seen.requests.filter((r) => r === "GET /repos/acme/widgets/tags"),
-    ).toEqual(["GET /repos/acme/widgets/tags"]);
+    // And no tag walk at all: the releases resolve every component here, so
+    // `backfillReleasesFromTags` is never reached. A walk nobody makes is the
+    // cheapest one, and a change that started making it would be invisible.
+    expect(seen.requests).not.toContain("GET /repos/acme/widgets/tags");
   });
 
   it("list a plain repository's releases and tags once each", async () => {

@@ -466,8 +466,15 @@ Keying on an enumeration of named fields is a seam whose failure is silence:
 an option a release-please upgrade adds is dropped from the key, two callers
 that differ only in it collide, and whichever ran first decides the answer for
 both. So the options object is carried whole and sorted, and the release and
-tag walks pass upstream everything except the cap they apply at replay. The
-worst an unknown option can then do is miss the cache.
+tag walks pass upstream everything except the cap they apply at replay. An
+unknown option then costs a cache miss instead.
+
+That holds for anything JSON can write, which is every option release-please
+has ever passed these -- `ScmCommitIteratorOptions`,
+`ScmReleaseIteratorOptions` and `ScmTagIteratorOptions` are numbers and
+booleans and nothing else. **A function-valued option would key as absent**
+and bring the collision back. Nothing is one today; check it when an upgrade
+adds an option that is not a scalar.
 
 **The releases and the tags are memoized by the same mechanism, and they were
 read more times than the commits.** Each pass asks for them twice --
@@ -535,10 +542,21 @@ guard.** A memoized walk that stops being consulted costs pages and changes
 nothing on screen, so counting the walks needs real release-please: how many
 times it asks is a property of the manifest build, not of anything this action
 calls. `history.test.ts` therefore counts them over the fake HTTP server, in
-both modes: one release walk, one tag walk and one commit walk per projection
-in manifest mode, and one release walk, one tag walk and *two* commit walks in
-plain mode -- plain mode being where the second release caller and the second
-commit question both live.
+both modes: one release walk, one commit walk and *no* tag walk per projection
+in manifest mode, where the releases resolve every component; and one release
+walk, one tag walk and *two* commit walks in plain mode with nothing released,
+plain mode being where the second release caller and the second commit
+question both live.
+
+**Getting those numbers right meant fixing the fake, which had been serving
+malformed releases since it was written.** Its release node carried `tagName`,
+and release-please reads `release.tag.name`, defaulting to the string
+`unknown`. So `TagName.parse` rejected every release, nothing resolved, and
+every HTTP-level projection test was quietly running the recovery path:
+`Expected N releases, only found 0`, `backfillReleasesFromTags`,
+`needsBootstrap`, the full commit walk. It produced correct projections the
+whole time, which is why nobody noticed. Only one assertion in the suite
+changed when it was fixed -- a walk count written the day before.
 The fake records GraphQL operations by the name in their `query` keyword --
 `releases`, `pullRequestsSince`, `mergedPullRequests` -- because every one of
 them is a POST to the one `/graphql` path and the request log cannot tell them

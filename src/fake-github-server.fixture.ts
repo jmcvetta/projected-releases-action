@@ -176,7 +176,15 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
                   pageInfo: { hasNextPage: false, endCursor: null },
                   nodes: repo.releases.map((release) => ({
                     name: release.tagName,
-                    tagName: release.tagName,
+                    // `tag.name`, which is the field release-please reads:
+                    // `tagName: release.tag ? release.tag.name : 'unknown'`.
+                    // A node carrying a bare `tagName` instead reaches it as
+                    // the string `unknown`, `TagName.parse` rejects it, and
+                    // every release resolves nothing -- so the fake looked
+                    // like a repository whose releases all fail to parse and
+                    // whose components are recovered from tags. That is a
+                    // working projection, which is why it went unnoticed.
+                    tag: { name: release.tagName },
                     url: "",
                     description: "",
                     isDraft: false,

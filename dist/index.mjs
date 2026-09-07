@@ -61884,7 +61884,7 @@ function historySource(github, options = {}) {
   const commits = sharedWalk();
   source.mergeCommitIterator = function(targetBranch, iteratorOptions) {
     return commits(
-      question(targetBranch, iteratorOptions),
+      question(targetBranch, iteratorOptions ?? {}),
       () => github.mergeCommitIterator.call(source, targetBranch, iteratorOptions)
     );
   };
