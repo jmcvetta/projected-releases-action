@@ -90,6 +90,14 @@ export interface FakeGitHub {
   url: string;
   /** requests are every path requested, in order. */
   requests: string[];
+  /**
+   * graphql is the operation name of every GraphQL query served, in order.
+   *
+   * Every one of them arrives at the same path, so `requests` cannot tell a
+   * commit walk from a release listing -- and how many commit walks one
+   * projection costs is the thing worth asserting.
+   */
+  graphql: string[];
   /** comments are the issue comments as the fake now holds them, so a test
    * can assert what was posted rather than only that a post happened. */
   comments: { id: number; body: string }[];
@@ -101,6 +109,7 @@ const BLOB = (path: string) => `blob-${Buffer.from(path).toString("hex")}`;
 /** startFakeGitHub serves `repo` until closed. */
 export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   const requests: string[] = [];
+  const graphql: string[] = [];
   const comments: { id: number; body: string }[] = [];
   let nextCommentId = 100;
 
@@ -153,6 +162,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
       // point of serving this over real HTTP.
       if (url === "/graphql") {
         const query = String(JSON.parse(body || "{}").query ?? "");
+        graphql.push(/query\s+(\w+)/.exec(query)?.[1] ?? "anonymous");
         if (query.includes("query releases")) {
           return send(200, {
             data: {
@@ -320,6 +330,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    graphql,
     comments,
     close: () =>
       new Promise<void>((resolve, reject) =>

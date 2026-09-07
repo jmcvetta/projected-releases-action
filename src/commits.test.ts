@@ -17,23 +17,26 @@ beforeAll(() => {
   } as Parameters<typeof setLogger>[0]);
 });
 
-/** history is a client whose walk can be watched: how many times it was
- * started, and which commits it actually handed out. */
+/** history is a client whose walk can be watched: what each walk was started
+ * with, and which commits it actually handed out. */
 function history(shas: string[]): {
   github: GitHubType;
-  walks: number;
+  walks: { targetBranch: string; options: unknown }[];
   yielded: string[];
   backfilled: string[];
 } {
   const state = {
-    walks: 0,
+    walks: [] as { targetBranch: string; options: unknown }[],
     yielded: [] as string[],
     backfilled: [] as string[],
     github: undefined as unknown as GitHubType,
   };
   state.github = {
-    async *mergeCommitIterator(): AsyncGenerator<Commit> {
-      state.walks += 1;
+    async *mergeCommitIterator(
+      targetBranch: string,
+      options?: unknown,
+    ): AsyncGenerator<Commit> {
+      state.walks.push({ targetBranch, options });
       for (const sha of shas) {
         state.yielded.push(sha);
         yield { sha, message: "fix: a thing", files: [] };
@@ -47,13 +50,23 @@ function history(shas: string[]): {
   return state as never;
 }
 
+/** shas names `count` commits, so a walk long enough to be capped can be
+ * written without spelling one out per line. */
+function shas(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `c${i}`);
+}
+
 async function walk(
   github: GitHubType,
   options?: Parameters<GitHubType["mergeCommitIterator"]>[1],
   stopAfter = Number.POSITIVE_INFINITY,
+  targetBranch = "master",
 ): Promise<string[]> {
   const out: string[] = [];
-  for await (const commit of github.mergeCommitIterator("master", options)) {
+  for await (const commit of github.mergeCommitIterator(
+    targetBranch,
+    options,
+  )) {
     out.push(commit.sha);
     if (out.length >= stopAfter) break;
   }
@@ -67,7 +80,7 @@ describe("the cached walk", () => {
 
     expect(await walk(source)).toEqual(["a", "b", "c"]);
     expect(await walk(source)).toEqual(["a", "b", "c"]);
-    expect(client.walks).toBe(1);
+    expect(client.walks).toHaveLength(1);
     expect(client.yielded).toEqual(["a", "b", "c"]);
   });
 
@@ -82,17 +95,75 @@ describe("the cached walk", () => {
 
     expect(await walk(source, undefined, 2)).toEqual(["a", "b"]);
     expect(await walk(source)).toEqual(["a", "b", "c", "d"]);
-    expect(client.walks).toBe(1);
+    expect(client.walks).toHaveLength(1);
     expect(client.yielded).toEqual(["a", "b", "c", "d"]);
   });
 
-  it("delegates a walk asking a different question", async () => {
+  it("answers a walk asking for a different depth from the same read", async () => {
+    // The two questions one pass asks: `Manifest.fromConfig` resolves the
+    // last release at 250, then `buildPullRequests` walks at 500. Keyed on
+    // the options rather than the branch, the second was a fresh walk over
+    // pages the first had already fetched -- twice per projection.
     const client = history(["a", "b"]);
     const source = commitSource(client.github);
 
-    await walk(source, { maxResults: 500 });
-    await walk(source, { maxResults: 50 });
-    expect(client.walks).toBe(2);
+    await walk(source, { maxResults: 250 });
+    await walk(source, { maxResults: 500, backfillFiles: true, batchSize: 100 });
+    expect(client.walks).toHaveLength(1);
+    expect(client.yielded).toEqual(["a", "b"]);
+  });
+
+  it("starts that read backfilled and at the batch size it was given", async () => {
+    // The shared walk is the one whose commits everything else is served
+    // from, so it has to carry the file lists the backfilling consumer needs:
+    // a commit fetched without them cannot be upgraded afterwards. Its cap is
+    // not written here -- it is each consumer's, applied at replay.
+    const client = history(["a"]);
+    const source = commitSource(client.github, { batchSize: 100 });
+
+    await walk(source, { maxResults: 250 });
+    expect(client.walks[0]?.options).toEqual({
+      backfillFiles: true,
+      batchSize: 100,
+    });
+  });
+
+  it("stops where release-please would, at a whole page", async () => {
+    // release-please checks its cap between pages, not between commits, so a
+    // walk overshoots to the end of the page the cap falls in. What reads
+    // those extra commits is `latestReleaseVersion`, which accepts a release
+    // only if its sha is one the walk handed over -- so a replay stopping
+    // anywhere else answers a question nobody asked.
+    const client = history(shas(40));
+    const source = commitSource(client.github);
+
+    expect(await walk(source, { maxResults: 25 })).toHaveLength(30);
+    expect(await walk(source, { maxResults: 25, batchSize: 100 })).toHaveLength(
+      40,
+    );
+    expect(await walk(source, { maxResults: 25, batchSize: 5 })).toHaveLength(
+      25,
+    );
+    expect(client.walks).toHaveLength(1);
+  });
+
+  it("reads no further than the deepest consumer asked for", async () => {
+    // Nothing caps the shared walk, so what bounds it is that it is pulled a
+    // commit at a time: a page nobody reads is a page never fetched.
+    const client = history(shas(40));
+    const source = commitSource(client.github);
+
+    await walk(source, { maxResults: 10 });
+    expect(client.yielded).toHaveLength(10);
+  });
+
+  it("delegates a walk over another branch", async () => {
+    const client = history(["a", "b"]);
+    const source = commitSource(client.github);
+
+    await walk(source, undefined, Number.POSITIVE_INFINITY, "master");
+    await walk(source, undefined, Number.POSITIVE_INFINITY, "next");
+    expect(client.walks.map((w) => w.targetBranch)).toEqual(["master", "next"]);
   });
 
   it("hands the client back untouched when the seam has moved", () => {
@@ -222,5 +293,79 @@ describe("the file lists release-please reads", () => {
     const seen = await projectOverHttp();
     expect(seen.pending).toEqual(["acme-ui"]);
     expect(seen.requests).toContain("GET /repos/acme/widgets/commits/feed01");
+  });
+});
+
+/**
+ * Plain mode asks the branch's history two different questions per pass, and
+ * that is where the cost this file exists to remove was hiding.
+ *
+ * `Manifest.fromConfig` resolves the last release before anything else,
+ * walking at 250 with no batch size; `buildPullRequests` then walks at 500,
+ * backfilled, in pages of a hundred. Manifest mode never makes the first
+ * call, which is why this repository's own dogfood run showed one walk while
+ * a plain-mode repository paid for four.
+ */
+describe("a plain-mode projection", () => {
+  /** projectPlain projects one pull request against a single-package
+   * repository with no config or manifest file, and reports what its history
+   * was asked for. */
+  async function projectPlain(): Promise<{
+    projected: string[];
+    graphql: string[];
+  }> {
+    const fake = await startFakeGitHub({
+      owner: "acme",
+      repo: "widgets",
+      branch: "master",
+      files: {
+        "package.json": JSON.stringify({ name: "widgets", version: "2.4.1" }),
+      },
+      commits: [
+        { sha: "feed01", message: "fix: a thing", files: ["src/x.ts"] },
+        { sha: RELEASE_SHA, message: "chore: release", files: [] },
+      ],
+      releases: [{ tagName: "v2.4.1", sha: RELEASE_SHA }],
+    });
+
+    try {
+      const github = await GitHub.create({
+        owner: "acme",
+        repo: "widgets",
+        defaultBranch: "master",
+        token: "fake",
+        apiUrl: fake.url,
+        graphqlUrl: fake.url,
+      });
+      const projection = await project({
+        github,
+        config: {},
+        manifest: {},
+        plain: { releaseType: "node" },
+        commit: {
+          title: "feat: a thing",
+          body: "",
+          files: ["src/x.ts"],
+          number: 7,
+          headSha: "c".repeat(40),
+          headBranch: "topic",
+          baseBranch: "master",
+        },
+      });
+      return {
+        projected: projection.projected.map((release) => release.version),
+        graphql: [...fake.graphql],
+      };
+    } finally {
+      await fake.close();
+    }
+  }
+
+  it("reads the branch's history exactly once", async () => {
+    const seen = await projectPlain();
+    expect(seen.projected).toEqual(["2.5.0"]);
+    expect(seen.graphql.filter((name) => name === "pullRequestsSince")).toEqual(
+      ["pullRequestsSince"],
+    );
   });
 });

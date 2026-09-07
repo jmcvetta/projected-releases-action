@@ -431,6 +431,29 @@ seconds became a 183-second step on `jmcvetta/career` (issue #54).
 `commits.ts` memoizes the walk, and `pr-view.ts`'s synthetic commit is yielded
 in front of it.
 
+**The cache is keyed on the target branch, and keying it on the options was a
+bug that hid in this repository's own mode.** One pass asks the history more
+than one question: `Manifest.fromConfig` resolves the last release first at
+`{maxResults: 250}`, and `buildPullRequests` then asks `{maxResults: 500,
+backfillFiles: true, batchSize: 100}`. An option-keyed cache answers the first
+and sends the second to a fresh walk, in both passes -- every page fetched
+twice, and 25 serial pages of ten before the real walk even starts, because
+release-please passes no batch size to the release search. `fromConfig` is
+plain mode only, so the dogfood run showed one walk while a plain-mode
+repository paid for four (issue #65).
+
+So there is one read, and each consumer's cap is applied when it is replayed.
+Two things that has to get right: the read is started `backfillFiles: true`
+whatever asked for it first, because a commit fetched without it **cannot be
+upgraded afterwards** -- upstream decides on the REST call from
+`pageInfo.hasNextPage` on the pull request's file list, and the commit it
+yields does not carry that flag; and the replay stops in whole pages of the
+size *that consumer* asked for, because release-please checks its cap between
+pages rather than between commits. 250 at a batch of 10 is 250 commits and at
+100 it is 300, and `latestReleaseVersion` accepts a release only when its sha
+is one the walk handed over -- so a replay that stops anywhere else answers a
+question release-please never asked.
+
 **Do not delegate to the upstream iterator with `yield*`.** release-please
 stops a walk by breaking out of a `for await`, which calls `return()` on the
 generator it is reading, and `yield*` forwards that upstream -- closing the
@@ -462,6 +485,13 @@ the local index is built to the same number and an index shallower than the
 walk sends the walk to the API for what it stopped short of. Both are withheld
 when the repository's own config declares them: the projection has to describe
 the release-please run the merge will get, not a differently configured one.
+
+The page size goes to `commitSource` as well as to the manifest, since the
+shared read is the one that fetches; the depth does not, and must not. A cap
+on that read is the deepest consumer's, and it would silently truncate a
+consumer asking deeper -- which the release search, at 250 against a
+configured depth of 40, is. Nothing bounds the read except that it is pulled
+one commit at a time: a page nobody reads is a page never fetched.
 
 **The receiver is the part that fails silently.** release-please calls
 `this.getCommitFiles` from inside its own iterator, so an override on a wrapper

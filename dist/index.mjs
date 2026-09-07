@@ -61818,6 +61818,7 @@ function drainBoundaries() {
 }
 
 // src/commits.ts
+var UPSTREAM_BATCH_SIZE = 10;
 function commitSource(github, options = {}) {
   if (typeof github.mergeCommitIterator !== "function") return github;
   const source = Object.create(github);
@@ -61827,7 +61828,11 @@ function commitSource(github, options = {}) {
       return serve(sha) ?? await github.getCommitFiles(sha);
     };
   }
-  let asked;
+  const walkOptions = {
+    backfillFiles: true,
+    ...options.batchSize === void 0 ? {} : { batchSize: options.batchSize }
+  };
+  let branch;
   const walked = [];
   let upstream;
   let exhausted = false;
@@ -61851,20 +61856,14 @@ function commitSource(github, options = {}) {
     return pull;
   };
   source.mergeCommitIterator = async function* (targetBranch, iteratorOptions) {
-    const question = JSON.stringify([
-      targetBranch,
-      iteratorOptions?.maxResults ?? null,
-      iteratorOptions?.backfillFiles ?? null,
-      iteratorOptions?.batchSize ?? null
-    ]);
-    if (asked === void 0) {
-      asked = question;
+    if (branch === void 0) {
+      branch = targetBranch;
       upstream = github.mergeCommitIterator.call(
         source,
         targetBranch,
-        iteratorOptions
+        walkOptions
       );
-    } else if (question !== asked) {
+    } else if (targetBranch !== branch) {
       yield* github.mergeCommitIterator.call(
         source,
         targetBranch,
@@ -61872,10 +61871,14 @@ function commitSource(github, options = {}) {
       );
       return;
     }
-    for (let n = 0; ; n++) {
-      const commit = await at(n);
-      if (!commit) return;
-      yield commit;
+    const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
+    const page = Math.max(1, iteratorOptions?.batchSize ?? UPSTREAM_BATCH_SIZE);
+    for (let n = 0; n < maxResults; ) {
+      for (let i = 0; i < page; i++, n++) {
+        const commit = await at(n);
+        if (!commit) return;
+        yield commit;
+      }
     }
   };
   return source;
@@ -62215,10 +62218,12 @@ async function project(options) {
     [manifestFile]: options.manifest
   };
   const tuned = plain ? {} : options.config;
+  const configuredBatchSize = tuned["commit-batch-size"];
   const manifestOptions = {
     ...tuned["commit-search-depth"] === void 0 ? { commitSearchDepth: COMMIT_SEARCH_DEPTH } : {},
-    ...tuned["commit-batch-size"] === void 0 ? { commitBatchSize: COMMIT_BATCH_SIZE } : {}
+    ...configuredBatchSize === void 0 ? { commitBatchSize: COMMIT_BATCH_SIZE } : {}
   };
+  const walkBatchSize = typeof configuredBatchSize === "number" && configuredBatchSize > 0 ? configuredBatchSize : COMMIT_BATCH_SIZE;
   const build = (github) => plain ? import_release_please3.Manifest.fromConfig(
     github,
     options.commit.baseBranch,
@@ -62232,10 +62237,10 @@ async function project(options) {
     manifestFile,
     manifestOptions
   );
-  const source = commitSource(
-    options.github,
-    options.commitFiles ? { files: options.commitFiles } : {}
-  );
+  const source = commitSource(options.github, {
+    ...options.commitFiles ? { files: options.commitFiles } : {},
+    batchSize: walkBatchSize
+  });
   const view = viewWithPullRequest(
     source,
     options.commit,

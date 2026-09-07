@@ -552,14 +552,23 @@ export async function project(options: ProjectOptions): Promise<Projection> {
   // has to describe the release-please run the merge will get, not a
   // differently configured one. Plain mode has no config file to tune them in.
   const tuned = plain ? {} : options.config;
+  const configuredBatchSize = tuned["commit-batch-size"];
   const manifestOptions = {
     ...(tuned["commit-search-depth"] === undefined
       ? { commitSearchDepth: COMMIT_SEARCH_DEPTH }
       : {}),
-    ...(tuned["commit-batch-size"] === undefined
+    ...(configuredBatchSize === undefined
       ? { commitBatchSize: COMMIT_BATCH_SIZE }
       : {}),
   };
+  // What the shared walk pages at, which is what release-please's own run
+  // will page at: the repository's value where it declares one, this one
+  // where it does not. release-please reads a batch size of zero as unset, so
+  // anything but a positive number is left to the same default it would take.
+  const walkBatchSize =
+    typeof configuredBatchSize === "number" && configuredBatchSize > 0
+      ? configuredBatchSize
+      : COMMIT_BATCH_SIZE;
 
   /** build makes a Manifest the way this repository is configured. Both
    * statics are release-please's public surface. */
@@ -581,11 +590,15 @@ export async function project(options: ProjectOptions): Promise<Projection> {
         );
 
   // Both passes read the target branch through one walk, cached between them,
-  // and both serve file lists from the checkout when there is one.
-  const source = commitSource(
-    options.github,
-    options.commitFiles ? { files: options.commitFiles } : {},
-  );
+  // and both serve file lists from the checkout when there is one. Every
+  // question either pass asks of that history is answered from the one walk,
+  // which is why the batch size goes here as well as to the manifest: the
+  // release search release-please runs first passes none of its own, and
+  // would otherwise page at ten.
+  const source = commitSource(options.github, {
+    ...(options.commitFiles ? { files: options.commitFiles } : {}),
+    batchSize: walkBatchSize,
+  });
 
   const view = viewWithPullRequest(
     source,
