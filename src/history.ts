@@ -202,6 +202,26 @@ function sharedWalk<T>(): (
  * seam having moved, which is pr-view.ts's error to raise — it is the one that
  * can explain what breaks.
  */
+/**
+ * question names a walk by everything that decides what it yields.
+ *
+ * Object keys are sorted, so two callers that wrote the same options in a
+ * different order ask the same question. Options are carried whole rather
+ * than enumerated field by field: an option this file has never heard of --
+ * one a release-please upgrade adds -- then keys a walk of its own instead of
+ * silently sharing one with a caller that did not pass it. A cache miss is a
+ * recoverable wrong; an answer to a question nobody asked is not.
+ */
+function question(...parts: unknown[]): string {
+  return JSON.stringify(parts, (_key, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)),
+        )
+      : value,
+  );
+}
+
 export function historySource(
   github: GitHub,
   options: HistorySourceOptions = {},
@@ -209,8 +229,13 @@ export function historySource(
   if (typeof github.mergeCommitIterator !== "function") return github;
 
   const source: GitHub = Object.create(github);
+
+  // Nothing is shadowed that is not there to shadow. A wrapper that installed
+  // an override over a missing method would turn a moved seam into
+  // `github.releaseIterator is not a function`, thrown from inside a
+  // generator, rather than handing the client back as it found it.
   const serve = options.files;
-  if (serve) {
+  if (serve && typeof github.getCommitFiles === "function") {
     source.getCommitFiles = async function (sha: string): Promise<string[]> {
       return serve(sha) ?? (await github.getCommitFiles(sha));
     };
@@ -221,48 +246,39 @@ export function historySource(
     targetBranch: string,
     iteratorOptions?: Parameters<GitHub["mergeCommitIterator"]>[1],
   ): AsyncGenerator<Commit> {
-    // Every option upstream reads, because each of them changes what the walk
-    // yields: the cap, whether file lists are backfilled, and the page size.
-    // `latestReleaseVersion` asks for 250 commits with none of the rest, which
-    // is not the walk `buildPullRequests` asks for -- so in plain mode these
-    // are two questions and each gets a cache of its own.
-    const question = JSON.stringify([
-      targetBranch,
-      iteratorOptions?.maxResults ?? null,
-      iteratorOptions?.backfillFiles ?? null,
-      iteratorOptions?.batchSize ?? null,
-    ]);
-    return commits(question, () =>
+    // The whole options object, because every field of it changes what the
+    // walk yields -- the cap, whether file lists are backfilled, the page
+    // size. `latestReleaseVersion` asks for 250 commits with none of the rest,
+    // which is not the walk `buildPullRequests` asks for, so in plain mode
+    // these are two questions and each gets a cache of its own.
+    return commits(question(targetBranch, iteratorOptions), () =>
       github.mergeCommitIterator.call(source, targetBranch, iteratorOptions),
     );
   } as GitHub["mergeCommitIterator"];
 
-  // Releases and tags take no option but the cap, and a cap is applied to what
-  // a consumer is handed rather than to the walk -- so there is nothing left
-  // to tell two questions apart, and the constant below says so.
+  // The cap is the one option release-please passes these two, and it is
+  // applied to what a consumer is handed rather than to the walk -- so it is
+  // taken out of the question, and every consumer shares one walk. Anything
+  // else an upgrade adds stays in the question and is passed upstream, where
+  // it keys a walk of its own.
   //
-  // The coercions are upstream's own and differ: `releaseIterator` reads
+  // The two coercions are upstream's own and differ: `releaseIterator` reads
   // `maxResults` with `??` and honours a zero, `tagIterator` reads it with
   // `||` and treats zero as unlimited. Neither is asked for zero today.
   // Normalising them would make this answer a question release-please would
   // not, so they are mirrored and measured against the real client rather
   // than against a fake -- see "caps its walks exactly as release-please's own
   // do" in history.test.ts.
-  //
-  // Each override is installed only if the method it shadows is there. These
-  // two are an optimization rather than the seam the projection depends on, so
-  // a client without them is served rather than wrapped in a call that would
-  // throw from inside a generator.
-  const ALL = "";
   if (typeof github.releaseIterator === "function") {
     const releases = sharedWalk<ScmRelease>();
     source.releaseIterator = function (
       iteratorOptions?: Parameters<GitHub["releaseIterator"]>[0],
     ): AsyncGenerator<ScmRelease> {
+      const { maxResults, ...rest } = iteratorOptions ?? {};
       return releases(
-        ALL,
-        () => github.releaseIterator.call(source),
-        iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY,
+        question(rest),
+        () => github.releaseIterator.call(source, rest),
+        maxResults ?? Number.POSITIVE_INFINITY,
       );
     } as GitHub["releaseIterator"];
   }
@@ -272,10 +288,11 @@ export function historySource(
     source.tagIterator = function (
       iteratorOptions?: Parameters<GitHub["tagIterator"]>[0],
     ): AsyncGenerator<ScmTag> {
+      const { maxResults, ...rest } = iteratorOptions ?? {};
       return tags(
-        ALL,
-        () => github.tagIterator.call(source),
-        iteratorOptions?.maxResults || Number.POSITIVE_INFINITY,
+        question(rest),
+        () => github.tagIterator.call(source, rest),
+        maxResults || Number.POSITIVE_INFINITY,
       );
     } as GitHub["tagIterator"];
   }

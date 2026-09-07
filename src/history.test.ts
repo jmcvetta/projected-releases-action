@@ -110,6 +110,12 @@ describe("the cached walk", () => {
     // `done`, which would look to the second pass exactly like a short
     // history. That is a missing release boundary and a version computed over
     // the wrong span, with nothing on screen wrong.
+    //
+    // Defensive rather than reached today: pass 1 is uncaught, so a walk that
+    // throws ends the run before pass 2 exists. It is the second pass being
+    // the caught one -- project.ts turns its failure into an empty `pending`
+    // and a line on stderr -- that makes a silently short walk there the
+    // expensive mistake.
     const failing = {
       async *mergeCommitIterator(): AsyncGenerator<Commit> {
         yield { sha: "a", message: "fix: a thing", files: [] };
@@ -118,8 +124,23 @@ describe("the cached walk", () => {
     } as unknown as GitHubType;
     const source = historySource(failing);
 
-    await expect(walk(source)).rejects.toThrow("boom");
-    await expect(walk(source)).rejects.toThrow("boom");
+    const attempt = async (): Promise<{ got: string[]; threw: unknown }> => {
+      const got: string[] = [];
+      try {
+        for await (const commit of source.mergeCommitIterator("master")) {
+          got.push(commit.sha);
+        }
+      } catch (error) {
+        return { got, threw: error };
+      }
+      return { got, threw: undefined };
+    };
+
+    expect(await attempt()).toMatchObject({ got: ["a"], threw: expect.any(Error) });
+    // And the second consumer is handed what the walk did reach before the
+    // error, then the error itself -- the failure is at the point the walk
+    // actually stopped, not at the front of it.
+    expect(await attempt()).toMatchObject({ got: ["a"], threw: expect.any(Error) });
   });
 
   it("hands the client back untouched when the seam has moved", () => {
@@ -127,6 +148,17 @@ describe("the cached walk", () => {
     // nothing wraps a method that is not there.
     const moved = {} as unknown as GitHubType;
     expect(historySource(moved)).toBe(moved);
+  });
+
+  it("shadows no method the client does not have", () => {
+    // The `history` fixture has the commit iterator and neither of the other
+    // two. Installing an override anyway would turn a moved seam into
+    // `github.releaseIterator is not a function`, thrown from inside a
+    // generator on first consumption rather than where anyone could read it.
+    const source = historySource(history(["a"]).github);
+    expect(Object.hasOwn(source, "releaseIterator")).toBe(false);
+    expect(Object.hasOwn(source, "tagIterator")).toBe(false);
+    expect(Object.hasOwn(source, "getCommitFiles")).toBe(false);
   });
 });
 
@@ -142,12 +174,14 @@ function catalogue(names: string[]): {
   github: GitHubType;
   releaseWalks: number;
   releasesYielded: string[];
+  releaseOptions: unknown[];
   tagWalks: number;
   tagsYielded: string[];
 } {
   const state = {
     releaseWalks: 0,
     releasesYielded: [] as string[],
+    releaseOptions: [] as unknown[],
     tagWalks: 0,
     tagsYielded: [] as string[],
     github: undefined as unknown as GitHubType,
@@ -166,6 +200,7 @@ function catalogue(names: string[]): {
       maxResults?: number;
     }): AsyncGenerator<unknown> {
       state.releaseWalks += 1;
+      state.releaseOptions.push(options);
       for (const name of capped(options)) {
         state.releasesYielded.push(name);
         yield { id: name, tagName: `v${name}`, sha: name, notes: "" };
@@ -258,6 +293,23 @@ describe("the cached release walk", () => {
     expect(client.releaseWalks).toBe(1);
   });
 
+  it("passes on an option it does not know, and keys a walk by it", async () => {
+    // The cap is taken out of the question because it is applied at replay.
+    // Everything else has to stay in it: an option a release-please upgrade
+    // adds decides what the walk yields, and a wrapper that dropped it would
+    // both answer a question nobody asked and serve that answer to the caller
+    // who did not pass it. Neither says anything on screen.
+    const client = catalogue(["a", "b", "c"]);
+    const source = historySource(client.github);
+    const withOption = { maxResults: 2, includeDrafts: true } as never;
+
+    expect(await listReleases(source)).toEqual(["a", "b", "c"]);
+    for await (const _ of source.releaseIterator(withOption)) break;
+
+    expect(client.releaseWalks).toBe(2);
+    expect(client.releaseOptions).toEqual([{}, { includeDrafts: true }]);
+  });
+
   it("continues a walk the first consumer stopped short of", async () => {
     // `buildPullRequests` breaks out of its `for await` as soon as it has
     // resolved every component, which calls return() on the generator it is
@@ -269,7 +321,6 @@ describe("the cached release walk", () => {
     expect(await listReleases(source)).toEqual(["a", "b", "c", "d"]);
     expect(client.releaseWalks).toBe(1);
   });
-
 });
 
 describe("the cached tag walk", () => {
@@ -477,12 +528,22 @@ describe("the caps on the release and tag walks", () => {
  * a property of the manifest build, not of anything this action calls.
  */
 describe("the release and tag walks a projection makes", () => {
-  it("list a manifest repository's releases once", async () => {
-    // `buildPullRequests` asks once per pass, and there are two passes.
+  it("list a manifest repository's releases and commits once", async () => {
+    // `buildPullRequests` asks for both once per pass, and there are two
+    // passes. Manifest mode asks one commit question rather than plain mode's
+    // two, because there is no `fromConfig` and so no `latestReleaseVersion`.
     const seen = await projectOverHttp();
     expect(seen.graphql.filter((query) => query === "releases")).toEqual([
       "releases",
     ]);
+    expect(seen.graphql.filter((query) => query === "pullRequestsSince")).toEqual(
+      ["pullRequestsSince"],
+    );
+    // And the tags, which release-please lists even here, where the releases
+    // resolve every component: once per pass before this shared them.
+    expect(
+      seen.requests.filter((r) => r === "GET /repos/acme/widgets/tags"),
+    ).toEqual(["GET /repos/acme/widgets/tags"]);
   });
 
   it("list a plain repository's releases and tags once each", async () => {
@@ -533,9 +594,6 @@ describe("the release and tag walks a projection makes", () => {
       expect(
         fake.requests.filter((r) => r === "GET /repos/acme/widgets/tags"),
       ).toEqual(["GET /repos/acme/widgets/tags"]);
-      // And the commit walks, which is what the caches are keyed for: plain
-      // mode is the mode with two commit questions, and a single-slot cache
-      // answered one of them and re-read the other in both passes.
       // And the commit walks, which is what the caches are keyed for. Plain
       // mode is the mode with two commit questions -- 250 commits with no
       // file lists for `latestReleaseVersion`, the deep backfilling walk for

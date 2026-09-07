@@ -61845,8 +61845,8 @@ function sharedWalk() {
     );
     return pull;
   };
-  return async function* (question, start, limit = Number.POSITIVE_INFINITY) {
-    let slot = slots.get(question);
+  return async function* (question2, start, limit = Number.POSITIVE_INFINITY) {
+    let slot = slots.get(question2);
     if (!slot) {
       slot = {
         walked: [],
@@ -61855,7 +61855,7 @@ function sharedWalk() {
         failed: false,
         queue: Promise.resolve()
       };
-      slots.set(question, slot);
+      slots.set(question2, slot);
     }
     for (let n = 0; n < limit; n++) {
       const item = await at(slot, n);
@@ -61864,46 +61864,49 @@ function sharedWalk() {
     }
   };
 }
+function question(...parts) {
+  return JSON.stringify(
+    parts,
+    (_key, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(
+      Object.entries(value).sort(([a], [b]) => a < b ? -1 : 1)
+    ) : value
+  );
+}
 function historySource(github, options = {}) {
   if (typeof github.mergeCommitIterator !== "function") return github;
   const source = Object.create(github);
   const serve = options.files;
-  if (serve) {
+  if (serve && typeof github.getCommitFiles === "function") {
     source.getCommitFiles = async function(sha) {
       return serve(sha) ?? await github.getCommitFiles(sha);
     };
   }
   const commits = sharedWalk();
   source.mergeCommitIterator = function(targetBranch, iteratorOptions) {
-    const question = JSON.stringify([
-      targetBranch,
-      iteratorOptions?.maxResults ?? null,
-      iteratorOptions?.backfillFiles ?? null,
-      iteratorOptions?.batchSize ?? null
-    ]);
     return commits(
-      question,
+      question(targetBranch, iteratorOptions),
       () => github.mergeCommitIterator.call(source, targetBranch, iteratorOptions)
     );
   };
-  const ALL = "";
   if (typeof github.releaseIterator === "function") {
     const releases = sharedWalk();
     source.releaseIterator = function(iteratorOptions) {
+      const { maxResults, ...rest } = iteratorOptions ?? {};
       return releases(
-        ALL,
-        () => github.releaseIterator.call(source),
-        iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY
+        question(rest),
+        () => github.releaseIterator.call(source, rest),
+        maxResults ?? Number.POSITIVE_INFINITY
       );
     };
   }
   if (typeof github.tagIterator === "function") {
     const tags = sharedWalk();
     source.tagIterator = function(iteratorOptions) {
+      const { maxResults, ...rest } = iteratorOptions ?? {};
       return tags(
-        ALL,
-        () => github.tagIterator.call(source),
-        iteratorOptions?.maxResults || Number.POSITIVE_INFINITY
+        question(rest),
+        () => github.tagIterator.call(source, rest),
+        maxResults || Number.POSITIVE_INFINITY
       );
     };
   }

@@ -455,7 +455,19 @@ the fake HTTP server and asserted there now.
 that threw is completed, so pulling it again answers `done` -- which reads to
 the second pass as a short history rather than as an error. The error is kept
 on the cache and rethrown instead. What was already handed out still replays:
-the failure is at the point the walk actually stopped.
+the failure is at the point the walk actually stopped. Defensive rather than
+reached today, since pass 1 is uncaught and a walk that throws there ends the
+run before pass 2 exists -- but it is the *second* pass that `project.ts`
+catches, turning a failure into an empty `pending` and a line on stderr, so a
+silently short walk there is the expensive one.
+
+**The question is the options, not a list of the fields this file knows.**
+Keying on an enumeration of named fields is a seam whose failure is silence:
+an option a release-please upgrade adds is dropped from the key, two callers
+that differ only in it collide, and whichever ran first decides the answer for
+both. So the options object is carried whole and sorted, and the release and
+tag walks pass upstream everything except the cap they apply at replay. The
+worst an unknown option can then do is miss the cache.
 
 **The releases and the tags are memoized by the same mechanism, and they were
 read more times than the commits.** Each pass asks for them twice --
@@ -522,9 +534,11 @@ so the component that comes out names which one was read.
 guard.** A memoized walk that stops being consulted costs pages and changes
 nothing on screen, so counting the walks needs real release-please: how many
 times it asks is a property of the manifest build, not of anything this action
-calls. `history.test.ts` therefore asserts one release walk, one tag walk and
-two commit walks per projection over the fake HTTP server, in plain mode as
-well as manifest mode, because plain mode is where the second caller lives.
+calls. `history.test.ts` therefore counts them over the fake HTTP server, in
+both modes: one release walk, one tag walk and one commit walk per projection
+in manifest mode, and one release walk, one tag walk and *two* commit walks in
+plain mode -- plain mode being where the second release caller and the second
+commit question both live.
 The fake records GraphQL operations by the name in their `query` keyword --
 `releases`, `pullRequestsSince`, `mergedPullRequests` -- because every one of
 them is a POST to the one `/graphql` path and the request log cannot tell them
