@@ -63199,9 +63199,12 @@ function mergeMethodInput(env) {
   return declared;
 }
 var CHANGED_FILES = ["auto", "git", "api"];
+function isChangedFiles(value) {
+  return CHANGED_FILES.includes(value);
+}
 function changedFilesSource(env) {
   const source = inputOr("changed-files", "auto", env);
-  if (!CHANGED_FILES.includes(source)) {
+  if (!isChangedFiles(source)) {
     throw new Error(
       `input \`changed-files\` must be one of ${CHANGED_FILES.join(", ")}`
     );

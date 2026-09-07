@@ -654,16 +654,23 @@ title edit and a push do land together. So `stick` re-reads when a handed-over
 list yields no comment -- once, on a pull request's first comment -- and
 trusts it the rest of the time, which is the case the head start was for.
 
+That first run is a round trip *worse* than not starting early at all: the
+confirming read happens after the projection and overlaps nothing, so it pays
+for a head start it then repeats. Every later event on the pull request wins
+back one round trip, which is the trade, but the first one loses one.
+
 **Arrival order does not prove concurrency**, which is the trap in testing
 this: a serial caller asks in the same order a concurrent one does, so
 `requests` cannot tell them apart. The fake takes a `concurrent` list of
 `METHOD /path` calls and holds each until all of them are in flight, which is
 a fact only a concurrent caller produces. Three things that barrier has to get
-right, all of them found by review rather than by a failing test: it opens on
-a timer as well, so a regression reports a failed assertion rather than a hung
-suite; each timer is tied to the round that armed it, or a stale one opens the
-next round early; and a list of one is refused, since one name is met by its
-own arrival and would report overlap that never happened.
+right, all of them found by review rather than by a failing test and each now
+pinned by one in `fake-github-server.test.ts`: it opens on a timer as well, so
+a serial caller reports no overlap rather than hanging the suite; each timer
+is tied to the round that armed it, or a stale one opens the next round early
+(the test that catches that reads 52ms where it wants more than 150); and a
+list of one is refused, since one name is met by its own arrival and would
+report overlap that never happened.
 
 **The annotations from those three reads no longer have a fixed order.** They
 race on response arrival. No test asserts on their order today -- don't write

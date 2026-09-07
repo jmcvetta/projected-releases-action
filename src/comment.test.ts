@@ -60,13 +60,17 @@ describe("findSticky", () => {
 
 describe("stick", () => {
   it("creates the comment when there is none", async () => {
-    const { client, created, updated } = fakeClient([]);
+    const { client, created, updated, reads } = fakeClient([]);
     expect(await stick(client, 7, "h", "hello")).toEqual({
       action: "created",
       id: 99,
     });
     expect(created).toEqual([withMarker("h", "hello")]);
     expect(updated).toEqual([]);
+    // One read, not two: a caller that handed nothing over -- `comment` mode,
+    // which posts a body an earlier job rendered -- read the list here and
+    // writes next, so there is no stale absence to confirm.
+    expect(reads()).toBe(1);
   });
 
   it("edits the existing comment in place", async () => {

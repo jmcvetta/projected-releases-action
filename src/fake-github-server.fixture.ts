@@ -391,7 +391,13 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
         // promise nobody holds and leave the request it was serving hanging:
         // an unhandled rejection blamed on whichever test was running, and a
         // `fetch` that settles only when the suite times out.
-        if (!res.headersSent) {
+        if (res.headersSent) {
+          // A throw between the head and the body -- the only place that
+          // ordering exists is `send` itself. The status is already out, so
+          // the only thing left that keeps the client from hanging is closing
+          // the socket.
+          res.destroy();
+        } else {
           res.writeHead(500, { "content-type": "application/json" });
           res.end(JSON.stringify({ message: `fake failed: ${String(error)}` }));
         }

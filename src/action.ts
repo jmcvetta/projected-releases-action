@@ -305,16 +305,22 @@ type ChangedFiles = "auto" | "git" | "api";
 
 const CHANGED_FILES: readonly ChangedFiles[] = ["auto", "git", "api"];
 
+/** isChangedFiles narrows an input string to a ChangedFiles, as
+ * `isMergeMethod` does for the other one. */
+function isChangedFiles(value: string): value is ChangedFiles {
+  return (CHANGED_FILES as readonly string[]).includes(value);
+}
+
 /** changedFilesSource is the `changed-files` input, checked. Read by both the
  * pull request's file list and the branch's commits, and checked once. */
 function changedFilesSource(env: Env): ChangedFiles {
   const source = inputOr("changed-files", "auto", env);
-  if (!(CHANGED_FILES as readonly string[]).includes(source)) {
+  if (!isChangedFiles(source)) {
     throw new Error(
       `input \`changed-files\` must be one of ${CHANGED_FILES.join(", ")}`,
     );
   }
-  return source as ChangedFiles;
+  return source;
 }
 
 /** MergePlan is which merge the projection should model, and what it was
