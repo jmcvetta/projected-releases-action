@@ -50,6 +50,15 @@ export interface FakeRepo {
   }[];
   /** releases are the published releases, newest first. */
   releases: { tagName: string; sha: string }[];
+  /**
+   * tags are the git tags, which default to one per release.
+   *
+   * They are a separate list because release-please reaches them only when a
+   * release does not resolve a component -- `backfillReleasesFromTags`, and
+   * `latestReleaseVersion`'s last fallback -- so a repository that has tags
+   * and no releases is the only shape that exercises the recovery at all.
+   */
+  tags?: { name: string; sha: string }[];
   /** pullRequests are the open pull requests the REST list endpoint serves,
    * which is where the action finds the standing release pull requests. */
   pullRequests?: { headRefName: string; url: string }[];
@@ -313,14 +322,20 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
         });
       }
       if (url.startsWith(`${base}/tags`)) {
-        // release-please falls back to tags when the release list does not
-        // resolve a version, so a fake that omits them changes the answer.
+        // release-please falls back to tags when a release does not resolve a
+        // component, and computes from them a version it found nowhere else.
+        // A fake that omits them changes the answer -- see "recovers a
+        // version from a tag when no release resolves" in history.test.ts,
+        // which is the test that keeps this payload load-bearing.
         return send(
           200,
-          repo.releases.map((release) => ({
-            name: release.tagName,
-            commit: { sha: release.sha },
-          })),
+          (
+            repo.tags ??
+            repo.releases.map((release) => ({
+              name: release.tagName,
+              sha: release.sha,
+            }))
+          ).map((tag) => ({ name: tag.name, commit: { sha: tag.sha } })),
         );
       }
       if (url === base) {

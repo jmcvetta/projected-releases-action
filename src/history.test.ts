@@ -584,6 +584,68 @@ describe("the release and tag walks a projection makes", () => {
     expect(seen.requests).not.toContain("GET /repos/acme/widgets/tags");
   });
 
+  it("recovers a version from a tag when no release resolves", async () => {
+    // The tag walk is not decoration: with no release resolving a component,
+    // `backfillReleasesFromTags` is where the last released version comes
+    // from, and a projection computed without it starts from nothing. This is
+    // the shape that exercises it -- tags, no releases -- and it is the test
+    // that keeps the fake's tag payload load-bearing.
+    const fake = await startFakeGitHub({
+      owner: "acme",
+      repo: "widgets",
+      branch: "master",
+      files: {
+        "release-please-config.json": JSON.stringify(CONFIG),
+        ".release-please-manifest.json": JSON.stringify(MANIFEST),
+      },
+      commits: [{ sha: RELEASE_SHA, message: "chore: release", files: [] }],
+      releases: [],
+      tags: [
+        { name: "acme-api-v2.4.1", sha: RELEASE_SHA },
+        { name: "acme-ui-v1.0.0", sha: RELEASE_SHA },
+      ],
+    });
+    try {
+      const github = await GitHub.create({
+        owner: "acme",
+        repo: "widgets",
+        defaultBranch: "master",
+        token: "fake",
+        apiUrl: fake.url,
+        graphqlUrl: fake.url,
+      });
+      const projection = await project({
+        github,
+        config: CONFIG,
+        manifest: MANIFEST,
+        commit: {
+          title: "feat: a thing",
+          body: "",
+          files: ["api/x.ts"],
+          number: 7,
+          headSha: "c".repeat(40),
+          headBranch: "topic",
+          baseBranch: "master",
+        },
+      });
+      expect(
+        projection.projected.map((r) => `${r.component} ${r.version}`),
+      ).toEqual(["acme-api 2.5.0"]);
+      // The version alone does not prove the tag was read -- it comes from
+      // the manifest either way. The boundary does: with the tag, both
+      // components resolve and nothing is reported unresolved. Without it,
+      // `needsBootstrap` and the warning boundary.ts exists to print.
+      expect(projection.unresolved).toEqual([]);
+      // And the tag walk is shared like the others: once, not once per pass
+      // per caller.
+      expect(
+        fake.requests.filter((r) => r === "GET /repos/acme/widgets/tags"),
+      ).toEqual(["GET /repos/acme/widgets/tags"]);
+    } finally {
+      await fake.close();
+    }
+  });
+
   it("list a plain repository's releases and tags once each", async () => {
     // Plain mode is where it was measured, because `Manifest.fromConfig` asks
     // a second time through `latestReleaseVersion`: four release walks over

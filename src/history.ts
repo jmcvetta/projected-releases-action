@@ -93,9 +93,11 @@ interface Slot<T> {
   upstream: AsyncGenerator<T, void, unknown>;
   /** exhausted records that upstream ran out, so nothing pulls it again. */
   exhausted: boolean;
-  /** failure is the error upstream threw, kept so later consumers are told
-   * rather than handed a walk that merely looks short. */
+  /** failed records that upstream threw, so later consumers are told rather
+   * than handed a walk that merely looks short. Separate from `failure`
+   * because the thrown value may itself be undefined. */
   failed: boolean;
+  /** failure is what upstream threw, rethrown to whoever asks past it. */
   failure?: unknown;
   /** queue serializes the pulls. */
   queue: Promise<unknown>;

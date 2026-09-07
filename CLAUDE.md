@@ -557,6 +557,15 @@ every HTTP-level projection test was quietly running the recovery path:
 `needsBootstrap`, the full commit walk. It produced correct projections the
 whole time, which is why nobody noticed. Only one assertion in the suite
 changed when it was fixed -- a walk count written the day before.
+
+**But it moved what the suite covers, which an assertion count does not
+show.** With the releases resolving, two `main.test.ts` bump tests stopped
+reaching the tag recovery, and the fake's `/tags` payload became load-bearing
+nowhere: emptying it failed nothing. That is the same silence the release
+shape sat in. `history.test.ts` therefore has a repository with tags and no
+releases, asserting the boundary resolves -- the version alone does not prove
+it, since that comes from the manifest either way.
+
 The fake records GraphQL operations by the name in their `query` keyword --
 `releases`, `pullRequestsSince`, `mergedPullRequests` -- because every one of
 them is a POST to the one `/graphql` path and the request log cannot tell them
