@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.1](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.6.0...v0.6.1) (2026-09-07)
+
+
+### Performance Improvements
+
+* read the releases and tags once per projection ([#70](https://github.com/jmcvetta/release-please-projected-releases-action/issues/70)) ([b5e20ff](https://github.com/jmcvetta/release-please-projected-releases-action/commit/b5e20fffcf5c6533e271409f068ae6577eaf694b))
+* serve every question about the history from one walk ([#69](https://github.com/jmcvetta/release-please-projected-releases-action/issues/69)) ([ce89f4e](https://github.com/jmcvetta/release-please-projected-releases-action/commit/ce89f4eb90c22c7ee5f5077b34a38d00e72de4d8))
+* start the independent API reads together ([#68](https://github.com/jmcvetta/release-please-projected-releases-action/issues/68)) ([0535156](https://github.com/jmcvetta/release-please-projected-releases-action/commit/0535156d14d1b4d0318f3b576fe98b39193b86e5))
+
 ## [0.6.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.5.0...v0.6.0) (2026-09-06)
 
 
