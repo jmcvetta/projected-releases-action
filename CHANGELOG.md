@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.6.1...v0.7.0) (2026-09-07)
+
+
+### Features
+
+* stop reading the config and manifest from a stale checkout ([#72](https://github.com/jmcvetta/release-please-projected-releases-action/issues/72)) ([c720e39](https://github.com/jmcvetta/release-please-projected-releases-action/commit/c720e39990690521ce060351e88d193faa10d24b))
+
 ## [0.6.1](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.6.0...v0.6.1) (2026-09-07)
 
 
