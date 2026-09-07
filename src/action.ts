@@ -13,7 +13,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { Client, ApiError } from "./api.js";
-import type { RepositoryMergeSettings } from "./api.js";
+import type { IssueComment, RepositoryMergeSettings } from "./api.js";
 import { DEFAULT_HEADER, stick } from "./comment.js";
 import { branchCommits, changedFiles, hasCommit } from "./git.js";
 import {
@@ -113,9 +113,32 @@ export async function action(env: Env = process.env): Promise<void> {
   quietLogger();
 
   const plain = plainConfig((name) => input(name, env), (name) => `input \`${name}\``);
-  const merge = await mergePlan(client, env);
-  const releasePrs = await standingReleasePrs(client, env, base);
-  const files = await pullRequestFiles(client, number, base, env);
+
+  // Both inputs are validated before anything is asked of the API, in the
+  // order the reads below would have raised them. A run that cannot succeed
+  // should not spend requests finding that out.
+  const declared = mergeMethodInput(env);
+  const source = changedFilesSource(env);
+
+  // The comment list is read for the sticky comment at the end, and nothing
+  // between here and there decides it. Started now, the post costs one write
+  // rather than a read and a write; started only in `stick`, it costs a round
+  // trip after the projection has already finished.
+  const listed =
+    mode === "render-and-comment" ? prefetchComments(client, number) : undefined;
+
+  // None of these three decides anything for another, and each is a round
+  // trip. Started in separate statements rather than inside the `Promise.all`
+  // because the order is load-bearing and an array literal makes it look
+  // incidental: `pullRequestFiles` runs `git` through `execFileSync` under
+  // the default `changed-files: auto`, and a blocking subprocess in front of
+  // the two fetches would hold them undispatched until it returned. They are
+  // awaited together rather than any later because `branchInput` needs the
+  // first and the last, and `buildComment` needs all three.
+  const plan = mergePlan(client, declared);
+  const standing = standingReleasePrs(client, env, base);
+  const changed = pullRequestFiles(client, number, base, env, source);
+  const [merge, releasePrs, files] = await Promise.all([plan, standing, changed]);
 
   // What merging actually writes, where it is not one squashed commit. The
   // pull request facts are the same ones the squash commit is built from; the
@@ -123,7 +146,7 @@ export async function action(env: Env = process.env): Promise<void> {
   const branch =
     merge.method === "squash"
       ? undefined
-      : await branchInput(client, env, merge.method, {
+      : await branchInput(client, env, merge.method, source, {
           number,
           base,
           headSha,
@@ -194,8 +217,28 @@ export async function action(env: Env = process.env): Promise<void> {
   for (const advisory of outcome.advisories) warning(advisory.replace(/^- /, ""));
 
   if (mode === "render-and-comment") {
-    await post(client, number, header, outcome.body);
+    await post(client, number, header, outcome.body, listed);
   }
+}
+
+/**
+ * prefetchComments starts the read the sticky comment needs, ahead of the
+ * projection that does not decide it.
+ *
+ * A failure is folded to `undefined` rather than left to reject. Nothing
+ * awaits this promise until the projection has been rendered, and a rejection
+ * nobody is waiting on is an unhandled one -- which would fail the run over a
+ * read that is allowed to fail, and fail it before the projection it has
+ * nothing to do with was written. `stick` reads for itself when it is handed
+ * nothing, so a failure still surfaces exactly where it did before: from the
+ * read `stick` does, in `post`, which downgrades a token that cannot see the
+ * pull request to a warning.
+ */
+function prefetchComments(
+  client: Client,
+  number: number,
+): Promise<readonly IssueComment[] | undefined> {
+  return client.issueComments(number).catch(() => undefined);
 }
 
 /**
@@ -212,9 +255,10 @@ async function post(
   number: number,
   header: string,
   body: string,
+  listed?: Promise<readonly IssueComment[] | undefined>,
 ): Promise<void> {
   try {
-    const result = await stick(client, number, header, body);
+    const result = await stick(client, number, header, body, listed);
     notice(`projected-releases comment ${result.action} (#${result.id})`);
   } catch (error) {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -238,6 +282,45 @@ function typeOverrides(
   const hidden = listInput("hidden-types", env);
   if (!visible && !hidden) return undefined;
   return { ...(visible ? { visible } : {}), ...(hidden ? { hidden } : {}) };
+}
+
+/**
+ * mergeMethodInput is the `merge-method` input, checked.
+ *
+ * Separate from `mergePlan` because the check has to happen before the reads
+ * it sits beside are started, and `mergePlan` is one of them.
+ */
+function mergeMethodInput(env: Env): MergeMethod {
+  const declared = inputOr("merge-method", "auto", env);
+  if (!isMergeMethod(declared)) {
+    throw new Error(
+      `input \`merge-method\` must be one of ${MERGE_METHODS.join(", ")}`,
+    );
+  }
+  return declared;
+}
+
+/** ChangedFiles is where the file lists are read from. */
+type ChangedFiles = "auto" | "git" | "api";
+
+const CHANGED_FILES: readonly ChangedFiles[] = ["auto", "git", "api"];
+
+/** isChangedFiles narrows an input string to a ChangedFiles, as
+ * `isMergeMethod` does for the other one. */
+function isChangedFiles(value: string): value is ChangedFiles {
+  return (CHANGED_FILES as readonly string[]).includes(value);
+}
+
+/** changedFilesSource is the `changed-files` input, checked. Read by both the
+ * pull request's file list and the branch's commits, and checked once. */
+function changedFilesSource(env: Env): ChangedFiles {
+  const source = inputOr("changed-files", "auto", env);
+  if (!isChangedFiles(source)) {
+    throw new Error(
+      `input \`changed-files\` must be one of ${CHANGED_FILES.join(", ")}`,
+    );
+  }
+  return source;
 }
 
 /** MergePlan is which merge the projection should model, and what it was
@@ -265,13 +348,10 @@ interface MergePlan {
  * method without them would swap one guess for another. A read that fails
  * leaves GitHub's own defaults, which is the guess it would have been.
  */
-async function mergePlan(client: Client, env: Env): Promise<MergePlan> {
-  const declared = inputOr("merge-method", "auto", env);
-  if (!isMergeMethod(declared)) {
-    throw new Error(
-      `input \`merge-method\` must be one of ${MERGE_METHODS.join(", ")}`,
-    );
-  }
+async function mergePlan(
+  client: Client,
+  declared: MergeMethod,
+): Promise<MergePlan> {
   if (declared === "squash" || declared === "rebase") {
     return { declared, method: declared };
   }
@@ -347,9 +427,9 @@ async function branchInput(
   client: Client,
   env: Env,
   method: ProjectedMethod,
+  source: ChangedFiles,
   pull: BranchInput,
 ): Promise<BranchCommit[] | undefined> {
-  const source = inputOr("changed-files", "auto", env);
   let commits: BranchCommit[] | undefined;
 
   if (source !== "api") {
@@ -433,12 +513,8 @@ async function pullRequestFiles(
   number: number,
   base: string,
   env: Env,
+  source: ChangedFiles,
 ): Promise<string[]> {
-  const source = inputOr("changed-files", "auto", env);
-  if (!["auto", "git", "api"].includes(source)) {
-    throw new Error("input `changed-files` must be one of auto, git, api");
-  }
-
   if (source !== "api") {
     try {
       return changedFiles(

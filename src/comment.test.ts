@@ -7,11 +7,14 @@ function fakeClient(existing: IssueComment[]): {
   client: Client;
   created: string[];
   updated: { id: number; body: string }[];
+  reads: () => number;
 } {
   const created: string[] = [];
   const updated: { id: number; body: string }[] = [];
+  let reads = 0;
   const client = {
     async issueComments() {
+      reads++;
       return existing;
     },
     async createComment(_number: number, body: string) {
@@ -23,7 +26,7 @@ function fakeClient(existing: IssueComment[]): {
       return { id, body };
     },
   } as unknown as Client;
-  return { client, created, updated };
+  return { client, created, updated, reads: () => reads };
 }
 
 describe("withMarker", () => {
@@ -57,13 +60,17 @@ describe("findSticky", () => {
 
 describe("stick", () => {
   it("creates the comment when there is none", async () => {
-    const { client, created, updated } = fakeClient([]);
+    const { client, created, updated, reads } = fakeClient([]);
     expect(await stick(client, 7, "h", "hello")).toEqual({
       action: "created",
       id: 99,
     });
     expect(created).toEqual([withMarker("h", "hello")]);
     expect(updated).toEqual([]);
+    // One read, not two: a caller that handed nothing over -- `comment` mode,
+    // which posts a body an earlier job rendered -- read the list here and
+    // writes next, so there is no stale absence to confirm.
+    expect(reads()).toBe(1);
   });
 
   it("edits the existing comment in place", async () => {
@@ -76,6 +83,60 @@ describe("stick", () => {
     });
     expect(created).toEqual([]);
     expect(updated).toEqual([{ id: 4, body: withMarker("h", "new") }]);
+  });
+
+  it("takes the list from a caller that already read it", async () => {
+    // The caller starts that read before rendering, which takes seconds, so
+    // the post costs one write rather than a read and a write.
+    const { client, updated, reads } = fakeClient([]);
+    const listed = Promise.resolve([{ id: 4, body: withMarker("h", "old") }]);
+    expect(await stick(client, 7, "h", "new", listed)).toEqual({
+      action: "updated",
+      id: 4,
+    });
+    expect(updated).toEqual([{ id: 4, body: withMarker("h", "new") }]);
+    expect(reads()).toBe(0);
+  });
+
+  it("confirms an absence in that list before adding a second comment", async () => {
+    // The comment another run posted in the seconds since the handed-over
+    // list was read. Trusting the absence would create a second sticky
+    // comment, and `findSticky` would serve the first of the two from then
+    // on, leaving this one showing a stale projection forever.
+    const { client, created, updated, reads } = fakeClient([
+      { id: 4, body: withMarker("h", "posted since") },
+    ]);
+    expect(await stick(client, 7, "h", "new", Promise.resolve([]))).toEqual({
+      action: "updated",
+      id: 4,
+    });
+    expect(created).toEqual([]);
+    expect(updated).toEqual([{ id: 4, body: withMarker("h", "new") }]);
+    expect(reads()).toBe(1);
+  });
+
+  it("creates once the fresh read agrees there is nothing", async () => {
+    const { client, created, reads } = fakeClient([]);
+    expect(await stick(client, 7, "h", "new", Promise.resolve([]))).toEqual({
+      action: "created",
+      id: 99,
+    });
+    expect(created).toEqual([withMarker("h", "new")]);
+    expect(reads()).toBe(1);
+  });
+
+  it("reads for itself when that caller's read gave nothing", async () => {
+    // A head start that failed is handed over as `undefined`, so the failure
+    // surfaces here, from the read that would have happened anyway.
+    const { client, updated, reads } = fakeClient([
+      { id: 4, body: withMarker("h", "old") },
+    ]);
+    expect(await stick(client, 7, "h", "new", Promise.resolve(undefined))).toEqual({
+      action: "updated",
+      id: 4,
+    });
+    expect(updated).toEqual([{ id: 4, body: withMarker("h", "new") }]);
+    expect(reads()).toBe(1);
   });
 
   it("writes nothing when the body is unchanged", async () => {
