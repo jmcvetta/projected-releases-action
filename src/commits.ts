@@ -100,20 +100,37 @@ export function commitSource(
   /**
    * The options the one shared walk is started with.
    *
-   * `backfillFiles` is on regardless of what a consumer asks for: a commit
-   * fetched without it cannot be upgraded afterwards: upstream reads
+   * `backfillFiles` is on regardless of what a consumer asks for, because a
+   * commit fetched without it cannot be upgraded afterwards: upstream reads
    * `pageInfo.hasNextPage` on the pull request's file list to decide whether a
    * REST call is needed, and the commit it yields does not carry that flag.
    * So the walk that fills the cache is the backfilling one, and a consumer
    * that asked for no file lists is handed commits carrying them anyway,
-   * which it does not read. What that costs is a backfill for a commit only
-   * the shallower consumer reaches — one `git log` lookup where the checkout
-   * is deep enough to index, a REST call where it is not.
+   * which it does not read.
    *
-   * `maxResults` is deliberately absent. Every consumer's cap is applied at
-   * replay, and the shared walk is pulled one commit at a time, so it fetches
-   * no page that nobody asked to read — while a cap written here would be the
-   * deepest consumer's, and would silently truncate a deeper one.
+   * That is not free, and the release search is the consumer it is not free
+   * for. It can reach *further* than the pull request build, which stops at
+   * the release boundary, and upstream backfills a whole page before yielding
+   * its first commit — so replaying 250 commits to it backfills the 300 the
+   * shared walk fetched, where release-please would have walked those 250 in
+   * pages of ten with no file lists at all. Where the checkout is deep the
+   * index in git.ts answers every one of them; where it is shallow they are
+   * REST calls, against the round trips per page the shared walk saves.
+   *
+   * The page size is one for all of them, and upstream counts a merge
+   * commit's pull requests per page, so a commit at a page boundary can
+   * resolve to a different associated pull request than it would have. The
+   * consumer that reads file lists is handed the page size its own run uses,
+   * and the release search reads a pull request's branch and title, which do
+   * not turn on that count.
+   *
+   * `maxResults` is deliberately absent. A cap here could not be any
+   * consumer's own: release-please stops between pages rather than between
+   * commits, so a consumer capped at 40 in pages of 25 reads 50, and a shared
+   * walk stopped at 40 would starve it of ten commits — silently, since a
+   * short history is what a branch with no more commits looks like. Nothing
+   * needs to bound it: the walk is pulled one commit at a time, so a page
+   * nobody reads is a page never fetched.
    */
   const walkOptions = {
     backfillFiles: true,
@@ -126,6 +143,13 @@ export function commitSource(
   const walked: Commit[] = [];
   let upstream: AsyncGenerator<Commit, void, unknown> | undefined;
   let exhausted = false;
+  // The error that ended the shared walk, if one did. A generator that throws
+  // is finished, so a later consumer asking for the commit after the failure
+  // would be told the branch simply ends there. It is handed the error
+  // instead: this cache spans consumers now, and a walk cut short by a
+  // transient failure would otherwise be a projection quietly computed from
+  // half a history.
+  let failure: { error: unknown } | undefined;
   // One pull at a time. The passes are sequential today; a shared generator
   // read from two places at once would interleave, and that is not a failure
   // anyone would enjoy diagnosing.
@@ -136,8 +160,15 @@ export function commitSource(
   const at = (n: number): Promise<Commit | undefined> => {
     const pull = queue.then(async () => {
       if (n < walked.length) return walked[n];
+      if (failure) throw failure.error;
       if (exhausted || !upstream) return undefined;
-      const next = await upstream.next();
+      let next;
+      try {
+        next = await upstream.next();
+      } catch (error) {
+        failure = { error };
+        throw error;
+      }
       if (next.done) {
         exhausted = true;
         return undefined;
@@ -145,8 +176,9 @@ export function commitSource(
       walked.push(next.value);
       return next.value;
     });
-    // A rejected pull must not poison every later one: the chain is for
-    // ordering, and the error belongs to the caller that asked.
+    // A rejected pull must not poison the chain, which is for ordering
+    // alone. What the failure does end is the walk, above -- a consumer is
+    // handed the error rather than a history that stops at it.
     queue = pull.then(
       () => undefined,
       () => undefined,
@@ -181,8 +213,18 @@ export function commitSource(
     // whether its sha is among the ones the walk handed it — so the replay
     // stops where the real walk would have, at the page size this consumer
     // asked for rather than the one the shared walk fetches with.
+    //
+    // Anything but a usable page size falls back to release-please's own
+    // default, which is what a walk with no batch size pages at. A repository
+    // can put a string in `commit-batch-size` and release-please hands it
+    // straight back here, and a page of `NaN` commits is a loop that yields
+    // nothing and never ends.
     const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
-    const page = Math.max(1, iteratorOptions?.batchSize ?? UPSTREAM_BATCH_SIZE);
+    const asked = iteratorOptions?.batchSize;
+    const page =
+      typeof asked === "number" && asked >= 1
+        ? Math.floor(asked)
+        : UPSTREAM_BATCH_SIZE;
     for (let n = 0; n < maxResults; ) {
       for (let i = 0; i < page; i++, n++) {
         const commit = await at(n);

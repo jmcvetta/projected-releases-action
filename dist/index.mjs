@@ -61836,12 +61836,20 @@ function commitSource(github, options = {}) {
   const walked = [];
   let upstream;
   let exhausted = false;
+  let failure;
   let queue = Promise.resolve();
   const at = (n) => {
     const pull = queue.then(async () => {
       if (n < walked.length) return walked[n];
+      if (failure) throw failure.error;
       if (exhausted || !upstream) return void 0;
-      const next = await upstream.next();
+      let next;
+      try {
+        next = await upstream.next();
+      } catch (error) {
+        failure = { error };
+        throw error;
+      }
       if (next.done) {
         exhausted = true;
         return void 0;
@@ -61872,7 +61880,8 @@ function commitSource(github, options = {}) {
       return;
     }
     const maxResults = iteratorOptions?.maxResults ?? Number.MAX_SAFE_INTEGER;
-    const page = Math.max(1, iteratorOptions?.batchSize ?? UPSTREAM_BATCH_SIZE);
+    const asked = iteratorOptions?.batchSize;
+    const page = typeof asked === "number" && asked >= 1 ? Math.floor(asked) : UPSTREAM_BATCH_SIZE;
     for (let n = 0; n < maxResults; ) {
       for (let i = 0; i < page; i++, n++) {
         const commit = await at(n);

@@ -870,7 +870,10 @@ describe("the commit walk", () => {
     const record = await walked({
       config: { ...CONFIG, "commit-batch-size": 25, "commit-search-depth": 40 },
     });
-    expect(record.walks[0]?.options).toMatchObject({ batchSize: 25 });
+    expect(record.walks[0]?.options).toEqual({
+      batchSize: 25,
+      backfillFiles: true,
+    });
   });
 
   it("stops reading where the configured search depth does", async () => {

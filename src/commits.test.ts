@@ -50,6 +50,19 @@ function history(shas: string[]): {
   return state as never;
 }
 
+/** failing is a client whose walk hands out `shas` and then throws, which is
+ * what a GraphQL page that fails partway through a history looks like. */
+function failing(shas: string[], error: Error): { github: GitHubType } {
+  return {
+    github: {
+      async *mergeCommitIterator(): AsyncGenerator<Commit> {
+        for (const sha of shas) yield { sha, message: "fix: a thing", files: [] };
+        throw error;
+      },
+    } as unknown as GitHubType,
+  };
+}
+
 /** shas names `count` commits, so a walk long enough to be capped can be
  * written without spelling one out per line. */
 function shas(count: number): string[] {
@@ -157,13 +170,44 @@ describe("the cached walk", () => {
     expect(client.yielded).toHaveLength(10);
   });
 
-  it("delegates a walk over another branch", async () => {
+  it("delegates a walk over another branch, with what it asked for", async () => {
+    // The one call that must not be given the shared walk's options: it is
+    // not the shared walk, and nothing replays it.
     const client = history(["a", "b"]);
-    const source = commitSource(client.github);
+    const source = commitSource(client.github, { batchSize: 100 });
 
     await walk(source, undefined, Number.POSITIVE_INFINITY, "master");
-    await walk(source, undefined, Number.POSITIVE_INFINITY, "next");
-    expect(client.walks.map((w) => w.targetBranch)).toEqual(["master", "next"]);
+    await walk(source, { maxResults: 50 }, Number.POSITIVE_INFINITY, "next");
+    expect(client.walks).toEqual([
+      { targetBranch: "master", options: { backfillFiles: true, batchSize: 100 } },
+      { targetBranch: "next", options: { maxResults: 50 } },
+    ]);
+  });
+
+  it("pages at release-please's default when the batch size is not one", async () => {
+    // A repository can write anything in `commit-batch-size`, and
+    // release-please hands the value back here rather than validating it. A
+    // page of `NaN` commits is a loop that yields nothing and never ends, on
+    // a runner with nothing to report until the workflow times out.
+    const client = history(shas(40));
+    const source = commitSource(client.github);
+
+    const seen = await walk(source, {
+      maxResults: 25,
+      batchSize: "auto",
+    } as unknown as Parameters<GitHubType["mergeCommitIterator"]>[1]);
+    expect(seen).toHaveLength(30);
+  });
+
+  it("hands a failed read to the next consumer, not a short history", async () => {
+    // A generator that throws is finished, so the commit after the failure
+    // looks exactly like the end of the branch. The second pass would then
+    // project from half a history and say nothing about it.
+    const client = failing(["a", "b"], new Error("graphql exploded"));
+    const source = commitSource(client.github);
+
+    await expect(walk(source)).rejects.toThrow("graphql exploded");
+    await expect(walk(source)).rejects.toThrow("graphql exploded");
   });
 
   it("hands the client back untouched when the seam has moved", () => {
@@ -304,7 +348,7 @@ describe("the file lists release-please reads", () => {
  * walking at 250 with no batch size; `buildPullRequests` then walks at 500,
  * backfilled, in pages of a hundred. Manifest mode never makes the first
  * call, which is why this repository's own dogfood run showed one walk while
- * a plain-mode repository paid for four.
+ * a plain-mode repository paid for three.
  */
 describe("a plain-mode projection", () => {
   /** projectPlain projects one pull request against a single-package

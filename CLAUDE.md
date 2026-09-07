@@ -440,7 +440,7 @@ and sends the second to a fresh walk, in both passes -- every page fetched
 twice, and 25 serial pages of ten before the real walk even starts, because
 release-please passes no batch size to the release search. `fromConfig` is
 plain mode only, so the dogfood run showed one walk while a plain-mode
-repository paid for four (issue #65).
+repository paid for three (issue #65).
 
 So there is one read, and each consumer's cap is applied when it is replayed.
 Two things that has to get right: the read is started `backfillFiles: true`
@@ -488,10 +488,20 @@ the release-please run the merge will get, not a differently configured one.
 
 The page size goes to `commitSource` as well as to the manifest, since the
 shared read is the one that fetches; the depth does not, and must not. A cap
-on that read is the deepest consumer's, and it would silently truncate a
-consumer asking deeper -- which the release search, at 250 against a
-configured depth of 40, is. Nothing bounds the read except that it is pulled
-one commit at a time: a page nobody reads is a page never fetched.
+there cannot be any consumer's own depth, because release-please stops
+between pages: a consumer capped at 40 in pages of 25 reads 50, and a read
+stopped at 40 starves it of ten commits -- silently, a short history being
+exactly what a branch with no more commits looks like. Nothing bounds the
+read except that it is pulled one commit at a time: a page nobody reads is a
+page never fetched.
+
+**What always-on backfill costs is paid by the release search.** It can reach
+further than the pull request build, which stops at the release boundary,
+and upstream backfills a whole page before yielding its first commit -- so
+replaying 250 commits to it backfills the 300 the read fetched, where
+release-please would have walked those 250 in pages of ten with no file lists
+at all. Deep checkout: the index answers them. Shallow: they are REST calls,
+traded against the round trips per page the shared read saves.
 
 **The receiver is the part that fails silently.** release-please calls
 `this.getCommitFiles` from inside its own iterator, so an override on a wrapper
