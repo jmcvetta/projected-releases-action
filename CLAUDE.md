@@ -607,3 +607,30 @@ they run against `src/`.
 against a fake GitHub over real HTTP. Each of the three was reintroduced to
 confirm it fails on them. **Build before testing**, in `npm run check` and in
 CI, or that test measures the previous build.
+
+## The reads that decide nothing for each other are started together
+
+`action.ts` makes four calls that are not inputs to one another: the merge
+settings, the open pull requests, the changed-file list, and the comment list
+the sticky comment is found in. Serially they were about a second of a
+seven-second step (measured on run 34031929980, issue #67). The first three go
+through one `Promise.all`; the fourth is started before `buildComment` and
+handed to `stick`, so posting costs one write rather than a read and a write.
+
+**A read started early and awaited late must not be left to reject.** Nothing
+awaits the comment list until the projection has been rendered, which is
+seconds later, so a rejection in between is an *unhandled* one -- and that
+fails the run, over a read that is allowed to fail, before the projection it
+has nothing to do with is written. `prefetchComments` folds a failure to
+`undefined` and `stick` reads for itself when it is handed that, so the
+failure still surfaces exactly where it did before: from `post`, which
+downgrades a token that cannot write to a warning. `commentListStatus` in the
+fake drives it, and without the `.catch` that test fails the run rather than
+the assertion.
+
+**Arrival order does not prove concurrency**, which is the trap in testing
+this: a serial caller asks in the same order a concurrent one does, so
+`requests` cannot tell them apart. The fake takes a `concurrent` list of
+`METHOD /path` calls and holds each until all of them are in flight, which is
+a fact only a concurrent caller produces. It opens on a timer as well, so a
+regression reports a failed assertion rather than a hung suite.

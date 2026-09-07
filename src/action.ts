@@ -13,7 +13,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { Client, ApiError } from "./api.js";
-import type { RepositoryMergeSettings } from "./api.js";
+import type { IssueComment, RepositoryMergeSettings } from "./api.js";
 import { DEFAULT_HEADER, stick } from "./comment.js";
 import { branchCommits, changedFiles, hasCommit } from "./git.js";
 import {
@@ -113,9 +113,22 @@ export async function action(env: Env = process.env): Promise<void> {
   quietLogger();
 
   const plain = plainConfig((name) => input(name, env), (name) => `input \`${name}\``);
-  const merge = await mergePlan(client, env);
-  const releasePrs = await standingReleasePrs(client, env, base);
-  const files = await pullRequestFiles(client, number, base, env);
+
+  // The comment list is read for the sticky comment at the end, and nothing
+  // between here and there decides it. Started now, the post costs one write
+  // rather than a read and a write; started only in `stick`, it costs a round
+  // trip after the projection has already finished.
+  const listed =
+    mode === "render-and-comment" ? prefetchComments(client, number) : undefined;
+
+  // None of these three depends on another, and each is a round trip. They
+  // are still awaited together rather than any later, because `branchInput`
+  // needs the first and the third and `buildComment` needs all of them.
+  const [merge, releasePrs, files] = await Promise.all([
+    mergePlan(client, env),
+    standingReleasePrs(client, env, base),
+    pullRequestFiles(client, number, base, env),
+  ]);
 
   // What merging actually writes, where it is not one squashed commit. The
   // pull request facts are the same ones the squash commit is built from; the
@@ -194,8 +207,28 @@ export async function action(env: Env = process.env): Promise<void> {
   for (const advisory of outcome.advisories) warning(advisory.replace(/^- /, ""));
 
   if (mode === "render-and-comment") {
-    await post(client, number, header, outcome.body);
+    await post(client, number, header, outcome.body, listed);
   }
+}
+
+/**
+ * prefetchComments starts the read the sticky comment needs, ahead of the
+ * projection that does not decide it.
+ *
+ * A failure is folded to `undefined` rather than left to reject. Nothing
+ * awaits this promise until the projection has been rendered, and a rejection
+ * nobody is waiting on is an unhandled one -- which would fail the run over a
+ * read that is allowed to fail, and fail it before the projection it has
+ * nothing to do with was written. `stick` reads for itself when it is handed
+ * nothing, so a failure still surfaces exactly where it did before: from the
+ * read `stick` does, in `post`, which downgrades a token that cannot see the
+ * pull request to a warning.
+ */
+function prefetchComments(
+  client: Client,
+  number: number,
+): Promise<readonly IssueComment[] | undefined> {
+  return client.issueComments(number).catch(() => undefined);
 }
 
 /**
@@ -212,9 +245,10 @@ async function post(
   number: number,
   header: string,
   body: string,
+  listed?: Promise<readonly IssueComment[] | undefined>,
 ): Promise<void> {
   try {
-    const result = await stick(client, number, header, body);
+    const result = await stick(client, number, header, body, listed);
     notice(`projected-releases comment ${result.action} (#${result.id})`);
   } catch (error) {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {

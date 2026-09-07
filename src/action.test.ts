@@ -309,6 +309,60 @@ describe("action modes", () => {
   });
 });
 
+describe("action, on the reads that decide nothing for each other", () => {
+  // The merge settings, the open pull requests, the changed-file list and the
+  // existing comments are four round trips, and none of them is an input to
+  // another. Serially they cost about a second of a seven-second step.
+  const INDEPENDENT = [
+    "GET /repos/acme/widgets",
+    "GET /repos/acme/widgets/pulls",
+    "GET /repos/acme/widgets/pulls/7/files",
+    "GET /repos/acme/widgets/issues/7/comments",
+  ];
+
+  it("starts all four at once rather than one after another", async () => {
+    // The fake holds each of them until the last arrives, so this passes only
+    // while they really are in flight together. Arrival order would prove
+    // nothing: a serial caller asks in the same order a concurrent one does.
+    const server = await start({ concurrent: INDEPENDENT });
+    await action(environment(server));
+    expect(server.overlapped()).toBe(true);
+    expect(server.comments).toHaveLength(1);
+  });
+
+  it("reads the comments before the projection, so posting is one write", async () => {
+    const server = await start();
+    await action(environment(server));
+    const listed = server.requests.indexOf(INDEPENDENT[3]!);
+    expect(listed).toBeGreaterThanOrEqual(0);
+    // The projection is everything release-please asks over GraphQL, and the
+    // read that finds the sticky comment happens before all of it.
+    expect(listed).toBeLessThan(server.requests.indexOf("POST /graphql"));
+    // Once, not once here and again in `stick`.
+    expect(server.requests.filter((r) => r === INDEPENDENT[3])).toHaveLength(1);
+  });
+
+  it("survives a head start that fails, and reports it where it fell", async () => {
+    // The comment list is read before the projection and awaited after it, so
+    // a rejection nobody is waiting on yet would be an unhandled one -- which
+    // would fail the run over a read that is allowed to fail, and fail it
+    // before the projection it has nothing to do with was even written.
+    const server = await start({ commentListStatus: 403 });
+    const env = environment(server);
+    await action(env);
+    expect(readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8")).toContain("1.0.0");
+    expect(annotations()).toContain("::warning::could not post");
+  });
+
+  it("does not read the comments at all in `render`", async () => {
+    // Nothing is posted, so the head start would be a request spent on
+    // nothing.
+    const server = await start();
+    await action(environment(server, { INPUT_MODE: "render" }));
+    expect(server.requests).not.toContain(INDEPENDENT[3]);
+  });
+});
+
 describe("action, when the comment cannot be posted", () => {
   // A pull request from a fork carries a read-only token. Failing the run
   // there would put a red check on every outside contribution over an

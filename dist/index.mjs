@@ -61558,9 +61558,10 @@ function findSticky(comments, header) {
   const marker = markerFor(header);
   return comments.find((comment) => comment.body.includes(marker));
 }
-async function stick(client, number, header, body) {
+async function stick(client, number, header, body, listed) {
   const full = withMarker(header, body);
-  const existing = findSticky(await client.issueComments(number), header);
+  const comments = await listed ?? await client.issueComments(number);
+  const existing = findSticky(comments, header);
   if (!existing) {
     const created = await client.createComment(number, full);
     return { action: "created", id: created.id };
@@ -63090,9 +63091,12 @@ async function action(env = process.env) {
   const headBranch = inputOr("head-branch", event.headBranch ?? "", env);
   quietLogger();
   const plain = plainConfig((name2) => input(name2, env), (name2) => `input \`${name2}\``);
-  const merge = await mergePlan(client, env);
-  const releasePrs = await standingReleasePrs(client, env, base);
-  const files = await pullRequestFiles(client, number, base, env);
+  const listed = mode === "render-and-comment" ? prefetchComments(client, number) : void 0;
+  const [merge, releasePrs, files] = await Promise.all([
+    mergePlan(client, env),
+    standingReleasePrs(client, env, base),
+    pullRequestFiles(client, number, base, env)
+  ]);
   const branch = merge.method === "squash" ? void 0 : await branchInput(client, env, merge.method, {
     number,
     base,
@@ -63155,12 +63159,15 @@ async function action(env = process.env) {
   if (boolInput("step-summary", true, env)) summary(outcome.body, env);
   for (const advisory of outcome.advisories) warning(advisory.replace(/^- /, ""));
   if (mode === "render-and-comment") {
-    await post(client, number, header, outcome.body);
+    await post(client, number, header, outcome.body, listed);
   }
 }
-async function post(client, number, header, body) {
+function prefetchComments(client, number) {
+  return client.issueComments(number).catch(() => void 0);
+}
+async function post(client, number, header, body, listed) {
   try {
-    const result = await stick(client, number, header, body);
+    const result = await stick(client, number, header, body, listed);
     notice(`projected-releases comment ${result.action} (#${result.id})`);
   } catch (error) {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {

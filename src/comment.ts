@@ -50,15 +50,24 @@ export interface StickResult {
  * a timestamp, so in practice this only fires when a caller renders without
  * one — but a no-op PATCH still bumps the comment's `updated_at`, and not
  * writing is cheaper than writing.
+ *
+ * `listed` is the comment list a caller has already started reading, since
+ * the read does not depend on the body and the body takes seconds to render.
+ * It is an optional argument rather than a required one because the read is
+ * this function's own business: a caller that has nothing to hand over says
+ * nothing, and one whose head start failed hands over `undefined` and gets
+ * the read it would have had.
  */
 export async function stick(
   client: Client,
   number: number,
   header: string,
   body: string,
+  listed?: Promise<readonly IssueComment[] | undefined>,
 ): Promise<StickResult> {
   const full = withMarker(header, body);
-  const existing = findSticky(await client.issueComments(number), header);
+  const comments = (await listed) ?? (await client.issueComments(number));
+  const existing = findSticky(comments, header);
   if (!existing) {
     const created = await client.createComment(number, full);
     return { action: "created", id: created.id };

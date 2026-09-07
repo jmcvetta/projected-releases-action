@@ -75,6 +75,11 @@ export interface FakeRepo {
    * 404 are what a fork's read-only token gets and are meant to cost the
    * comment rather than the run; anything else is a real failure. */
   commentStatus?: number;
+  /** commentListStatus forces a status on the comment *list*, which the
+   * action reads ahead of the projection it does not depend on. A failure
+   * there is meant to reach the run where the read it replaces would have
+   * reached it, and not before. */
+  commentListStatus?: number;
   /** pullsStatus forces a status on the open pull request list, whose failure
    * is meant to cost the release pull request links and nothing else. */
   pullsStatus?: number;
@@ -82,6 +87,16 @@ export interface FakeRepo {
    * settings are read from, whose failure is meant to cost the merge
    * advisory and nothing else. */
   repositoryStatus?: number;
+  /**
+   * concurrent names paths the fake holds until all of them are in flight at
+   * once, which is how a test tells reads that were started together from
+   * reads that were started one after another. Arrival order proves nothing:
+   * a serial caller asks in the same order a concurrent one does.
+   *
+   * Entries are the `METHOD /path` strings `requests` records, so a path the
+   * action both reads and writes can be named on one of the two.
+   */
+  concurrent?: readonly string[];
 }
 
 /** FakeGitHub is a running fake, and the record of what was asked of it. */
@@ -93,16 +108,50 @@ export interface FakeGitHub {
   /** comments are the issue comments as the fake now holds them, so a test
    * can assert what was posted rather than only that a post happened. */
   comments: { id: number; body: string }[];
+  /** overlapped says whether every call named by `concurrent` was in flight
+   * at the same moment. False when none were named. */
+  overlapped(): boolean;
   close(): Promise<void>;
 }
 
 const BLOB = (path: string) => `blob-${Buffer.from(path).toString("hex")}`;
+
+/**
+ * BARRIER_MS is how long a held request waits for the rest of its set.
+ *
+ * The barrier has to open on a timer as well as on the last arrival, or a
+ * caller that reads serially would deadlock against it and the test would
+ * report a timeout rather than the serial read it found. Opening late instead
+ * costs a failing test this long per held request and says what it means.
+ */
+const BARRIER_MS = 250;
 
 /** startFakeGitHub serves `repo` until closed. */
 export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   const requests: string[] = [];
   const comments: { id: number; body: string }[] = [];
   let nextCommentId = 100;
+
+  // See FakeRepo.concurrent. `waiting` is what has arrived and not yet been
+  // answered; the set is met when every named call is among it.
+  const named = new Set(repo.concurrent ?? []);
+  let waiting: { call: string; open: () => void }[] = [];
+  let overlapped = false;
+  const openAll = () => {
+    const held = waiting;
+    waiting = [];
+    for (const one of held) one.open();
+  };
+  const hold = (call: string) =>
+    new Promise<void>((resolve) => {
+      waiting.push({ call, open: resolve });
+      if (new Set(waiting.map((one) => one.call)).size === named.size) {
+        overlapped = true;
+        openAll();
+        return;
+      }
+      setTimeout(openAll, BARRIER_MS).unref();
+    });
 
   const commitNodes = repo.commits.map((commit) => ({
     associatedPullRequests: {
@@ -140,9 +189,12 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   const server: Server = createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
+    req.on("end", async () => {
       const url = req.url ?? "";
-      requests.push(`${req.method} ${url.split("?")[0]}`);
+      const path = url.split("?")[0] ?? "";
+      const call = `${req.method} ${path}`;
+      requests.push(call);
+      if (named.has(call)) await hold(call);
       const send = (code: number, payload: unknown) => {
         res.writeHead(code, { "content-type": "application/json" });
         res.end(JSON.stringify(payload));
@@ -190,7 +242,6 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
         });
       }
 
-      const path = url.split("?")[0] ?? "";
       if (path === `${base}/pulls`) {
         if (repo.pullsStatus) return send(repo.pullsStatus, { message: "no" });
         return send(
@@ -228,7 +279,12 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
         );
       }
       if (COMMENTS.test(path)) {
-        if (req.method === "GET") return send(200, comments);
+        if (req.method === "GET") {
+          if (repo.commentListStatus) {
+            return send(repo.commentListStatus, { message: "no" });
+          }
+          return send(200, comments);
+        }
         if (repo.commentStatus) {
           return send(repo.commentStatus, { message: "no" });
         }
@@ -321,6 +377,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
     url: `http://127.0.0.1:${port}`,
     requests,
     comments,
+    overlapped: () => overlapped,
     close: () =>
       new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
