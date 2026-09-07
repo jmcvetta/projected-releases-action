@@ -346,6 +346,47 @@ sticky comment that matched on "my newest comment" rather than on its own
 hidden marker would edit the other one. That is what `src/comment.ts` is
 careful about, and why.
 
+## The checkout is not the target branch, and only the changed files may be served from it
+
+**A file the pull request does not change is read from the target branch, never
+from the checkout.** On a `pull_request` event `actions/checkout` gives you
+GitHub's merge of the head into the target branch *as it stood when the event
+fired*, and nothing re-fires the event when the target branch moves. A release
+cut in between leaves the checkout's `.release-please-manifest.json` a version
+behind, with no marker anywhere that says so -- and a re-run reproduces it
+exactly, because a re-run checks out the same merge commit.
+
+Serving that copy to release-please regardless is what `project` used to do,
+and the damage is not a wrong number in one column. **release-please matches a
+release to a component by the version the manifest names** --
+`expectedVersion.toString() === tagName.version.toString()`, manifest.js:225 --
+so a manifest one release behind makes it resolve the *previous* release as the
+boundary. The commit walk then starts there, replays everything the last
+release already shipped, and computes the version that was already cut.
+
+Measured on `jmcvetta/claude-daily-driver`#55: 0.3.0 was released at 14:41, the
+comment re-rendered at 14:45, and it projected 0.3.0 again -- current 0.2.0,
+four changelog entries, three of them already in the 0.3.0 release. The job log
+is the whole diagnosis in two lines, and it is worth knowing they can differ:
+pass 1 logs `Found release for path ., v0.2.0` (head's stale manifest) and
+pass 2 logs `Found release for path ., v0.3.0` (the target branch's). **Two
+passes disagreeing about the last release is this bug's signature**, since the
+second pass never took an override.
+
+The rule that fixes it is the one `readHeadFile` already followed and the JSON
+overrides did not: **serve the head's copy only for a path in
+`options.commit.files`.** A pull request repairing the manifest still previews
+its repair; a pull request that never touches it gets the branch it will
+actually merge into. `withReleasedVersions` follows the same reading, so the
+"Current" column is the version release-please will bump from rather than the
+one the checkout happens to hold.
+
+The general form, which is what to carry to the next file this reaches for:
+**the checkout answers questions about the branch (its diff, its commits'
+file lists); the API answers questions about the target branch.** A path
+that reads the target branch's *state* from the checkout is stale by
+construction, and silently.
+
 ## The unresolved-boundary warning is read out of a log line
 
 release-please resolves a component's last release by matching a tag or a
