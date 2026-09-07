@@ -61821,67 +61821,99 @@ function drainBoundaries() {
   return found;
 }
 
-// src/commits.ts
-function commitSource(github, options = {}) {
-  if (typeof github.mergeCommitIterator !== "function") return github;
-  const source = Object.create(github);
-  const serve = options.files;
-  if (serve) {
-    source.getCommitFiles = async function(sha) {
-      return serve(sha) ?? await github.getCommitFiles(sha);
-    };
-  }
-  let asked;
-  const walked = [];
-  let upstream;
-  let exhausted = false;
-  let queue = Promise.resolve();
-  const at = (n) => {
-    const pull = queue.then(async () => {
-      if (n < walked.length) return walked[n];
-      if (exhausted || !upstream) return void 0;
-      const next = await upstream.next();
-      if (next.done) {
-        exhausted = true;
-        return void 0;
+// src/history.ts
+function sharedWalk() {
+  const slots = /* @__PURE__ */ new Map();
+  const at = (slot, n) => {
+    const pull = slot.queue.then(async () => {
+      if (n < slot.walked.length) return slot.walked[n];
+      if (slot.failed) throw slot.failure;
+      if (slot.exhausted) return void 0;
+      try {
+        const next = await slot.upstream.next();
+        if (next.done) {
+          slot.exhausted = true;
+          return void 0;
+        }
+        slot.walked.push(next.value);
+        return next.value;
+      } catch (error) {
+        slot.failed = true;
+        slot.failure = error;
+        throw error;
       }
-      walked.push(next.value);
-      return next.value;
     });
-    queue = pull.then(
+    slot.queue = pull.then(
       () => void 0,
       () => void 0
     );
     return pull;
   };
-  source.mergeCommitIterator = async function* (targetBranch, iteratorOptions) {
-    const question = JSON.stringify([
-      targetBranch,
-      iteratorOptions?.maxResults ?? null,
-      iteratorOptions?.backfillFiles ?? null,
-      iteratorOptions?.batchSize ?? null
-    ]);
-    if (asked === void 0) {
-      asked = question;
-      upstream = github.mergeCommitIterator.call(
-        source,
-        targetBranch,
-        iteratorOptions
-      );
-    } else if (question !== asked) {
-      yield* github.mergeCommitIterator.call(
-        source,
-        targetBranch,
-        iteratorOptions
-      );
-      return;
+  return async function* (question2, start, limit = Number.POSITIVE_INFINITY) {
+    let slot = slots.get(question2);
+    if (!slot) {
+      slot = {
+        walked: [],
+        upstream: start(),
+        exhausted: false,
+        failed: false,
+        queue: Promise.resolve()
+      };
+      slots.set(question2, slot);
     }
-    for (let n = 0; ; n++) {
-      const commit = await at(n);
-      if (!commit) return;
-      yield commit;
+    for (let n = 0; n < limit; n++) {
+      const item = await at(slot, n);
+      if (item === void 0) return;
+      yield item;
     }
   };
+}
+function question(...parts) {
+  return JSON.stringify(
+    parts,
+    (_key, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(
+      Object.entries(value).sort(([a], [b]) => a < b ? -1 : 1)
+    ) : value
+  );
+}
+function historySource(github, options = {}) {
+  if (typeof github.mergeCommitIterator !== "function") return github;
+  const source = Object.create(github);
+  const serve = options.files;
+  if (serve && typeof github.getCommitFiles === "function") {
+    source.getCommitFiles = async function(sha) {
+      return serve(sha) ?? await github.getCommitFiles(sha);
+    };
+  }
+  const commits = sharedWalk();
+  source.mergeCommitIterator = function(targetBranch, iteratorOptions) {
+    return commits(
+      question(targetBranch, iteratorOptions ?? {}),
+      () => github.mergeCommitIterator.call(source, targetBranch, iteratorOptions)
+    );
+  };
+  if (typeof github.releaseIterator === "function") {
+    const releases = sharedWalk();
+    source.releaseIterator = function(iteratorOptions) {
+      const { maxResults, ...rest } = iteratorOptions ?? {};
+      return releases(
+        question(rest),
+        () => github.releaseIterator.call(source, rest),
+        maxResults ?? Number.POSITIVE_INFINITY
+      );
+    };
+  }
+  if (typeof github.tagIterator === "function") {
+    const tags = sharedWalk();
+    source.tagIterator = function(iteratorOptions) {
+      const { maxResults, ...rest } = iteratorOptions ?? {};
+      return tags(
+        question(rest),
+        () => github.tagIterator.call(source, rest),
+        maxResults || Number.POSITIVE_INFINITY
+      );
+    };
+  }
   return source;
 }
 
@@ -62236,7 +62268,7 @@ async function project(options) {
     manifestFile,
     manifestOptions
   );
-  const source = commitSource(
+  const source = historySource(
     options.github,
     options.commitFiles ? { files: options.commitFiles } : {}
   );

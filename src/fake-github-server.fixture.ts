@@ -50,6 +50,15 @@ export interface FakeRepo {
   }[];
   /** releases are the published releases, newest first. */
   releases: { tagName: string; sha: string }[];
+  /**
+   * tags are the git tags, which default to one per release.
+   *
+   * They are a separate list because release-please reaches them only when a
+   * release does not resolve a component -- `backfillReleasesFromTags`, and
+   * `latestReleaseVersion`'s last fallback -- so a repository that has tags
+   * and no releases is the only shape that exercises the recovery at all.
+   */
+  tags?: { name: string; sha: string }[];
   /** pullRequests are the open pull requests the REST list endpoint serves,
    * which is where the action finds the standing release pull requests. */
   pullRequests?: { headRefName: string; url: string }[];
@@ -105,6 +114,18 @@ export interface FakeGitHub {
   url: string;
   /** requests are every path requested, in order. */
   requests: string[];
+  /**
+   * graphql names every GraphQL operation asked of the fake, in order, by the
+   * name release-please gave it: `releases`, `mergedPullRequests` or
+   * `pullRequestsSince`. Read off the query rather than mapped from a list
+   * here, so an operation nobody has seen yet is reported rather than
+   * miscounted as one of these.
+   *
+   * `requests` cannot tell them apart -- every one of them is a POST to the
+   * one `/graphql` path -- and how many times a projection lists the
+   * repository's releases is exactly what issue #66 was about.
+   */
+  graphql: string[];
   /** comments are the issue comments as the fake now holds them, so a test
    * can assert what was posted rather than only that a post happened. */
   comments: { id: number; body: string }[];
@@ -129,6 +150,7 @@ const BARRIER_MS = 250;
 /** startFakeGitHub serves `repo` until closed. */
 export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   const requests: string[] = [];
+  const graphql: string[] = [];
   const comments: { id: number; body: string }[] = [];
   let nextCommentId = 100;
 
@@ -223,7 +245,9 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
         // point of serving this over real HTTP.
         if (url === "/graphql") {
           const query = String(JSON.parse(body || "{}").query ?? "");
-          if (query.includes("query releases")) {
+          const operation = /query\s+(\w+)/.exec(query)?.[1] ?? "unknown";
+          graphql.push(operation);
+          if (operation === "releases") {
             return send(200, {
               data: {
                 repository: {
@@ -231,7 +255,15 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
                     pageInfo: { hasNextPage: false, endCursor: null },
                     nodes: repo.releases.map((release) => ({
                       name: release.tagName,
-                      tagName: release.tagName,
+                      // `tag.name`, which is the field release-please reads:
+                      // `tagName: release.tag ? release.tag.name : 'unknown'`.
+                      // A node carrying a bare `tagName` instead reaches it as
+                      // the string `unknown`, `TagName.parse` rejects it, and
+                      // every release resolves nothing -- so the fake looked
+                      // like a repository whose releases all fail to parse and
+                      // whose components are recovered from tags. That is a
+                      // working projection, which is why it went unnoticed.
+                      tag: { name: release.tagName },
                       url: "",
                       description: "",
                       isDraft: false,
@@ -364,14 +396,20 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
           });
         }
         if (url.startsWith(`${base}/tags`)) {
-          // release-please falls back to tags when the release list does not
-          // resolve a version, so a fake that omits them changes the answer.
+          // release-please falls back to tags when a release does not resolve
+          // a component, and computes from them a version it found nowhere
+          // else. A fake that omits them changes the answer -- see "recovers
+          // a version from a tag when no release resolves" in history.test.ts,
+          // which is the test that keeps this payload load-bearing.
           return send(
             200,
-            repo.releases.map((release) => ({
-              name: release.tagName,
-              commit: { sha: release.sha },
-            })),
+            (
+              repo.tags ??
+              repo.releases.map((release) => ({
+                name: release.tagName,
+                sha: release.sha,
+              }))
+            ).map((tag) => ({ name: tag.name, commit: { sha: tag.sha } })),
           );
         }
         if (url === base) {
@@ -410,6 +448,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    graphql,
     comments,
     overlapped: () => overlapped,
     close: () =>

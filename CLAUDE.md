@@ -428,7 +428,7 @@ A projection runs release-please twice over the same target branch, and the
 second walk used to re-read every commit the first one had already read. On a
 repository where the walk is expensive that is the whole cost paid twice: 103
 seconds became a 183-second step on `jmcvetta/career` (issue #54).
-`commits.ts` memoizes the walk, and `pr-view.ts`'s synthetic commit is yielded
+`history.ts` memoizes the walk, and `pr-view.ts`'s synthetic commit is yielded
 in front of it.
 
 **Do not delegate to the upstream iterator with `yield*`.** release-please
@@ -436,6 +436,81 @@ stops a walk by breaking out of a `for await`, which calls `return()` on the
 generator it is reading, and `yield*` forwards that upstream -- closing the
 shared walk for good and leaving the second pass with only what the first
 happened to need. Pulling one commit at a time leaves it suspended instead.
+
+**One cache per set of options, not one cache.** A walk asked for with
+different options is a different walk and cannot be answered from the same
+cache -- `backfillFiles` decides whether the commits carry file lists at all,
+and serving a non-backfilled commit to a consumer expecting one attributes it
+to no component and silently releases nothing. But caching only the first
+question and re-reading everything else is worse than it looks, because
+**plain mode asks two**: `latestReleaseVersion` wants 250 commits with no file
+lists and `buildPullRequests` wants the deep backfilling walk, and the cheap
+one is asked first. A single-slot cache is claimed by it, and the expensive
+walk -- the one issue #54 is about -- is read afresh in *both* passes. This
+repository is plain mode, so it was itself the case that mattered. Three
+`pullRequestsSince` queries per projection where two is the floor, measured on
+the fake HTTP server and asserted there now.
+
+**A walk that threw is over, and later consumers are told so.** A generator
+that threw is completed, so pulling it again answers `done` -- which reads to
+the second pass as a short history rather than as an error. The error is kept
+on the cache and rethrown instead. What was already handed out still replays:
+the failure is at the point the walk actually stopped. Defensive rather than
+reached today, since pass 1 is uncaught and a walk that throws there ends the
+run before pass 2 exists -- but it is the *second* pass that `project.ts`
+catches, turning a failure into an empty `pending` and a line on stderr, so a
+silently short walk there is the expensive one.
+
+**The question is the options, not a list of the fields this file knows.**
+Keying on an enumeration of named fields is a seam whose failure is silence:
+an option a release-please upgrade adds is dropped from the key, two callers
+that differ only in it collide, and whichever ran first decides the answer for
+both. So the options object is carried whole and sorted, and the release and
+tag walks pass upstream everything except the cap they apply at replay. An
+unknown option then costs a cache miss instead.
+
+That holds for anything JSON can write, which is every option release-please
+has ever passed these -- `ScmCommitIteratorOptions`,
+`ScmReleaseIteratorOptions` and `ScmTagIteratorOptions` are numbers and
+booleans and nothing else. **A function-valued option would key as absent**
+and bring the collision back. Nothing is one today; check it when an upgrade
+adds an option that is not a scalar.
+
+**The releases and the tags are memoized by the same mechanism, and they were
+read more times than the commits.** Each pass asks for them twice --
+`Manifest.fromConfig` resolves the last release through `latestReleaseVersion`
+and `buildPullRequests` walks them again to resolve every component's (one
+walk, not one per component) -- so a plain-mode projection listed the releases
+four times with identical pages, 1.3s of a 7.1s step on run 34031929980 (issue
+#66). `tagIterator` is the fallback when no release resolves and is asked for
+as many times.
+
+The two release callers disagree about how much they want: `latestReleaseVersion`
+passes no `maxResults` and `buildPullRequests` passes `releaseSearchDepth`.
+**So the shared walk is started uncapped and each consumer's cap is applied to
+what it is handed** -- which reads no more pages than upstream would have read
+for the deepest caller that actually ran, since a capped consumer leaves the
+shared iterator suspended at its cap rather than reading past it. Starting the
+walk capped instead would leave the uncapped caller short.
+
+**Only these two caps may move to replay.** A cap belongs at replay only where
+upstream honours it exactly: `releaseIterator` and `tagIterator` break inside
+the page and yield exactly `maxResults`. `mergeCommitIterator` yields the
+whole page and only then re-checks, so it overshoots to the next page
+boundary -- its cap therefore stays in the question and goes upstream. Both
+commit callers ask for an exact multiple today (250 at the default page size
+of 10, 500 at this action's 100), which is why "tidying" that one to match
+would fail nothing; a repository tuning `commit-search-depth` to 450 would
+then see 450 commits where release-please walks 500.
+
+The two caps are not read the same way upstream and this does not normalise
+them: `releaseIterator` reads `maxResults` with `??` and honours a zero,
+`tagIterator` reads it with `||` and treats zero as unlimited. Neither is
+asked for zero today. A wrapper that tidied the difference away would answer a
+question release-please would not -- so the test that holds it compares the
+wrapped walk against **release-please's own client** over the fake server at
+several caps. A fake on both sides would pin this file against itself and say
+nothing about the upgrade that moves it.
 
 **The file lists are the other half, and they were the larger one.**
 release-please backfills `commit.files` with one serial REST call for every
@@ -468,9 +543,44 @@ the release-please run the merge will get, not a differently configured one.
 only ever runs if the upstream iterator was *started* with the wrapper as its
 receiver. Get that wrong and nothing breaks -- the API answers, the projection
 is right, the index is simply never consulted and the action is slow again. Two
-tests in `commits.test.ts` drive real release-please over the fake HTTP server
+tests in `history.test.ts` drive real release-please over the fake HTTP server
 with the index and the API disagreeing about which directory a commit touched,
 so the component that comes out names which one was read.
+
+**Every one of these caches fails silently too, and the same tests are the
+guard.** A memoized walk that stops being consulted costs pages and changes
+nothing on screen, so counting the walks needs real release-please: how many
+times it asks is a property of the manifest build, not of anything this action
+calls. `history.test.ts` therefore counts them over the fake HTTP server, in
+both modes: one release walk, one commit walk and *no* tag walk per projection
+in manifest mode, where the releases resolve every component; and one release
+walk, one tag walk and *two* commit walks in plain mode with nothing released,
+plain mode being where the second release caller and the second commit
+question both live.
+
+**Getting those numbers right meant fixing the fake, which had been serving
+malformed releases since it was written.** Its release node carried `tagName`,
+and release-please reads `release.tag.name`, defaulting to the string
+`unknown`. So `TagName.parse` rejected every release, nothing resolved, and
+every HTTP-level projection test was quietly running the recovery path:
+`Expected N releases, only found 0`, `backfillReleasesFromTags`,
+`needsBootstrap`, the full commit walk. It produced correct projections the
+whole time, which is why nobody noticed. Only one assertion in the suite
+changed when it was fixed -- a walk count written the day before.
+
+**But it moved what the suite covers, which an assertion count does not
+show.** With the releases resolving, two `main.test.ts` bump tests stopped
+reaching the tag recovery, and the fake's `/tags` payload became load-bearing
+nowhere: emptying it failed nothing. That is the same silence the release
+shape sat in. `history.test.ts` therefore has a repository with tags and no
+releases, asserting the boundary resolves -- the version alone does not prove
+it, since that comes from the manifest either way.
+
+The fake records GraphQL operations by the name in their `query` keyword --
+`releases`, `pullRequestsSince`, `mergedPullRequests` -- because every one of
+them is a POST to the one `/graphql` path and the request log cannot tell them
+apart. Read off the query rather than mapped from a list, so an operation
+nobody has seen yet is reported rather than counted as one of these.
 
 **What issue #54 asked for and this does not do is cap the walk.** An
 unresolved boundary sets `needsBootstrap`, which disables the early exit, and
