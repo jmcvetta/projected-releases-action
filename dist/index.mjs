@@ -62170,9 +62170,10 @@ function plainPackage(config) {
 }
 function withReleasedVersions(manifest, packages) {
   const released = manifest.releasedVersions ?? {};
-  return packages.map(
-    (pkg) => pkg.current === void 0 && released[pkg.path] ? { ...pkg, current: released[pkg.path].toString() } : pkg
-  );
+  return packages.map((pkg) => {
+    const version = released[pkg.path];
+    return version ? { ...pkg, current: version.toString() } : pkg;
+  });
 }
 async function namePackages(manifest, packages) {
   const build = manifest.getStrategiesByPath;
@@ -62262,10 +62263,12 @@ async function project(options) {
     includeComponentInTag: options.plain.includeComponentInTag ?? PLAIN_INCLUDE_COMPONENT_IN_TAG
   } : void 0;
   const declared = plain ? [plainPackage(plain)] : readPackages(options.config, options.manifest);
-  const overrides = plain ? {} : {
-    [configFile]: options.config,
-    [manifestFile]: options.manifest
-  };
+  const changed = new Set(options.commit.files);
+  const overrides = {};
+  if (!plain) {
+    if (changed.has(configFile)) overrides[configFile] = options.config;
+    if (changed.has(manifestFile)) overrides[manifestFile] = options.manifest;
+  }
   const tuned = plain ? {} : options.config;
   const configuredBatchSize = tuned["commit-batch-size"];
   const manifestOptions = {

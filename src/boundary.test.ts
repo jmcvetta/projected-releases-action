@@ -71,7 +71,8 @@ async function run(options: {
   return project({
     // release-please reads the manifest from the target branch, so the fake
     // serves the base's copy; `project` overrides it with the head's for the
-    // pass that has the pull request in it.
+    // pass that has the pull request in it, where the pull request changes
+    // it -- so a pull request carrying its own copy lists the file.
     github: fakeScm({
       config: CONFIG,
       manifest: baseManifest,
@@ -85,7 +86,9 @@ async function run(options: {
     commit: {
       title: "fix: another thing",
       body: "",
-      files: ["api/src/x.ts"],
+      files: options.manifest
+        ? ["api/src/x.ts", ".release-please-manifest.json"]
+        : ["api/src/x.ts"],
       number: 7,
       headSha: "abcdef1234567890",
       headBranch: "topic",

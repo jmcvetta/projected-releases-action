@@ -57,6 +57,9 @@ async function comment(
   title: string,
   over: {
     config?: unknown;
+    /** baseManifest is the target branch's manifest where it has moved on
+     * from the checkout's. */
+    baseManifest?: Record<string, string>;
     files?: string[];
     advisories?: string[];
     body?: string;
@@ -76,7 +79,7 @@ async function comment(
     headBranch: "topic",
     files: over.files ?? ["api/src/x.ts"],
     repoRoot: fixture(config),
-    github: fakeScm({ config, manifest: MANIFEST }),
+    github: fakeScm({ config, manifest: over.baseManifest ?? MANIFEST }),
     now: new Date("2026-09-01T12:00:00Z"),
     ...(over.advisories ? { advisories: over.advisories } : {}),
     ...(over.branch ? { branch: over.branch } : {}),
@@ -91,6 +94,14 @@ describe("buildComment", () => {
     // and `api`, once each, on the one row there is.
     expect(out).toContain("| 1 | 2.4.1 | — | **2.5.0** | `acme-api@v2.5.0` |");
     expect(out).toContain("Changelog preview");
+  });
+
+  it("shows the target branch's current version, not the checkout's", async () => {
+    // The checkout's manifest still says 2.4.1; the target branch released
+    // 2.5.0 after the checkout's merge commit was computed. The bump applies
+    // to the version that is really there.
+    const out = await comment("fix: a thing", { baseManifest: { api: "2.5.0" } });
+    expect(out).toContain("| 1 | 2.5.0 | — | **2.5.1** | `acme-api@v2.5.1` |");
   });
 
   // The answer is the line; a table of em dashes under it is one the reader

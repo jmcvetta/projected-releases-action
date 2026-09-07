@@ -918,3 +918,125 @@ describe("the commit walk", () => {
     expect(record.yielded).toHaveLength(251);
   });
 });
+
+// The checkout is not the target branch. On a `pull_request` event it is
+// GitHub's merge of the head into the target branch as it stood when the
+// event fired, and nothing re-fires the event when the target branch moves:
+// a release cut after the branch was last touched leaves the checkout's
+// manifest a version behind. Serving that copy to release-please started the
+// projection from the version before the release -- a clean-looking table,
+// one release out of date -- and re-running the job reproduced it, since a
+// re-run checks out the same merge commit. Measured on
+// jmcvetta/claude-daily-driver#55: 0.3.0 cut at 14:41, the comment
+// re-rendered at 14:45 saying current 0.2.0, projected 0.3.0.
+describe("a checkout that lags the target branch", () => {
+  const CONFIG_ROOT = {
+    packages: {
+      ".": {
+        "release-type": "simple",
+        component: "widgets",
+        "include-component-in-tag": false,
+      },
+    },
+  };
+  const RELEASED_SHA = "c0ffee0000000000000000000000000000000000";
+  /** STALE is the manifest the checkout carries: the version before the
+   * release the target branch has since cut. */
+  const STALE = { ".": "0.2.0" };
+  /** LIVE is the manifest on the target branch now. */
+  const LIVE = { ".": "0.3.0" };
+
+  /** repository has released 0.3.0 since the checkout's merge commit was
+   * computed, with a feature between the two releases. */
+  function repository(config: unknown = CONFIG_ROOT) {
+    return fakeScm({
+      config,
+
+      manifest: LIVE,
+      releases: [
+        { tagName: "v0.3.0", sha: RELEASED_SHA },
+        { tagName: "v0.2.0", sha: RELEASE_SHA },
+      ],
+      commits: [
+        {
+          sha: RELEASED_SHA,
+          message: "chore(master): release 0.3.0",
+          files: [".release-please-manifest.json"],
+        },
+        { sha: "feed02", message: "feat: a thing", files: ["src/x.ts"] },
+      ],
+    });
+  }
+
+  async function lagging(options: {
+    title: string;
+    files: string[];
+    /** config is the checkout's copy; baseConfig the target branch's, where
+     * the two differ. */
+    config?: unknown;
+    baseConfig?: unknown;
+  }): Promise<Projection> {
+    const config = options.config ?? CONFIG_ROOT;
+    return project({
+      github: repository(options.baseConfig ?? config),
+      config: config as Record<string, unknown>,
+      manifest: STALE,
+      commit: {
+        title: options.title,
+        body: "",
+        files: options.files,
+        number: 7,
+        headSha: "abcdef1234567890",
+        headBranch: "topic",
+        baseBranch: "master",
+      },
+    });
+  }
+
+  it("takes the current version from the target branch when the pull request leaves the manifest alone", async () => {
+    const p = await lagging({ title: "fix: another thing", files: ["src/y.ts"] });
+    expect(p.packages[0]?.current).toBe("0.3.0");
+    expect(p.projected.map((r) => r.version)).toEqual(["0.3.1"]);
+    expect(p.pending).toEqual([]);
+  });
+
+  it("serves the pull request's manifest when the pull request changes it", async () => {
+    // A pull request repairing the manifest is what its copy is for: after
+    // the merge, that is the manifest the target branch carries.
+    const p = await lagging({
+      title: "fix: another thing",
+      files: ["src/y.ts", ".release-please-manifest.json"],
+    });
+    expect(p.packages[0]?.current).toBe("0.2.0");
+    expect(p.projected.map((r) => r.version)).toEqual(["0.3.0"]);
+  });
+
+  it("reads the config by the same rule", async () => {
+    // The checkout's config bumps a feature to a patch before 1.0 and the
+    // target branch's does not, so the version says which copy
+    // release-please read.
+    const tuned = {
+      packages: {
+        ".": {
+          ...CONFIG_ROOT.packages["."],
+          "bump-patch-for-minor-pre-major": true,
+        },
+      },
+    };
+    const untouched = await lagging({
+      title: "feat: a thing",
+      files: ["src/y.ts"],
+      config: tuned,
+      baseConfig: CONFIG_ROOT,
+    });
+    expect(untouched.projected.map((r) => r.version)).toEqual(["0.4.0"]);
+
+    const changed = await lagging({
+      title: "feat: a thing",
+      files: ["src/y.ts", "release-please-config.json"],
+      config: tuned,
+      baseConfig: CONFIG_ROOT,
+    });
+    expect(changed.projected.map((r) => r.version)).toEqual(["0.3.1"]);
+  });
+});

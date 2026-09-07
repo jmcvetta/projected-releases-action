@@ -193,23 +193,25 @@ export function plainPackage(config: PlainConfig): PackageConfig {
  * withReleasedVersions fills in each package's current version from the
  * manifest release-please built.
  *
- * In manifest mode the version came from the manifest file and this changes
- * nothing. In plain mode there is no such file: the base version is whatever
- * the latest tag says, which release-please resolves while constructing the
- * manifest and exposes as `releasedVersions`. Without it the "Current" column
- * is blank and the bump cannot be named, since naming it compares the two
- * versions.
+ * release-please's reading wins over the checkout's. In plain mode there is
+ * no manifest file at all: the base version is whatever the latest tag says,
+ * which release-please resolves while constructing the manifest and exposes
+ * as `releasedVersions`. In manifest mode `readPackages` read the checkout's
+ * copy, and that is the target branch's only where the pull request changes
+ * it -- otherwise release-please read the target branch itself, which holds
+ * the version the next bump really applies to. Without this the "Current"
+ * column is blank in plain mode and a release behind in manifest mode, and
+ * the bump cannot be named, since naming it compares the two versions.
  */
 export function withReleasedVersions(
   manifest: Manifest,
   packages: readonly PackageConfig[],
 ): PackageConfig[] {
   const released = manifest.releasedVersions ?? {};
-  return packages.map((pkg) =>
-    pkg.current === undefined && released[pkg.path]
-      ? { ...pkg, current: released[pkg.path]!.toString() }
-      : pkg,
-  );
+  return packages.map((pkg) => {
+    const version = released[pkg.path];
+    return version ? { ...pkg, current: version.toString() } : pkg;
+  });
 }
 
 /**
@@ -513,10 +515,11 @@ export function releaseAsNotes(body: string): ReleaseAsNotes {
 /**
  * project runs both passes and assembles the result.
  *
- * The head's config and manifest are served to the pull request pass, because
- * after the merge those are the files master carries: a branch that adds a
- * component should preview as adding one. The target-branch pass reads the
- * target branch normally, since that is the state it describes.
+ * The head's config and manifest are served to the pull request pass where
+ * the pull request changes them, because after the merge those are the files
+ * master carries: a branch that adds a component should preview as adding
+ * one. Everything else is read from the target branch on both passes, since
+ * that is the state the merge lands on and the checkout may lag it.
  */
 export async function project(options: ProjectOptions): Promise<Projection> {
   const configFile = options.configFile ?? DEFAULT_CONFIG_FILE;
@@ -536,16 +539,27 @@ export async function project(options: ProjectOptions): Promise<Projection> {
     ? [plainPackage(plain)]
     : readPackages(options.config, options.manifest);
 
+  // The head's copy of the config and the manifest, for the files the pull
+  // request changes and only those. A file it leaves alone is read from the
+  // target branch, as release-please itself reads it, because the checkout
+  // is not the target branch: on a `pull_request` event it is GitHub's merge
+  // of the head into the target branch as it stood when the event fired, and
+  // a release cut since then has moved the manifest on without moving the
+  // checkout. Serving that copy regardless projected the release that had
+  // already been cut -- a clean-looking table, one release behind, and a
+  // re-run reproduced it, since a re-run checks out the same merge commit.
+  //
   // Plain mode has no config or manifest file to override -- the
   // configuration came from the caller. It still reads a file, though: the
   // release strategy opens the package file on the target branch to derive
-  // the component name, which `readHeadFile` serves from the head.
-  const overrides: HeadOverrides = plain
-    ? {}
-    : {
-        [configFile]: options.config,
-        [manifestFile]: options.manifest,
-      };
+  // the component name, which `readHeadFile` serves from the head under the
+  // same rule.
+  const changed = new Set(options.commit.files);
+  const overrides: HeadOverrides = {};
+  if (!plain) {
+    if (changed.has(configFile)) overrides[configFile] = options.config;
+    if (changed.has(manifestFile)) overrides[manifestFile] = options.manifest;
+  }
 
   // An override wins over anything the repository's own config says, so a
   // repository that has tuned either of these keeps its value: the projection
