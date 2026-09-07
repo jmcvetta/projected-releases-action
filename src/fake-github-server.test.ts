@@ -88,9 +88,17 @@ describe("the fake's concurrency barrier", () => {
     await after(200);
     await Promise.all([first, get(server, B)]);
 
-    // Round two now runs inside that armed timer's remaining ~50ms. Its own
-    // first call must be held until its own second arrives, 200ms later,
-    // rather than released early by round one's leftover.
+    // Round two now runs inside that armed timer's remaining ~50ms, and that
+    // window is the fragile number here rather than the threshold below: the
+    // call must reach the fake before the leftover fires, or the leftover
+    // fires on an empty queue and a broken barrier passes. Raising the wait
+    // above shrinks the window; lowering it collapses the gap between the two
+    // outcomes, measured at 204ms held and 50ms released early. 200 is about
+    // the best both constraints allow, so change the threshold if you must
+    // and leave the waits alone.
+    //
+    // Round two's own first call must be held until its own second arrives,
+    // 200ms later, rather than released early by round one's leftover.
     const held = get(server, A);
     await after(200);
     await get(server, B);
