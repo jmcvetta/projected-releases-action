@@ -112,9 +112,12 @@ export interface PullRequestView {
  * the target branch, keyed by repository path.
  *
  * release-please reads its config and manifest from the target branch, which
- * is right for it and wrong here: after the merge, master carries the pull
- * request's version of those files. A branch that adds a component to
- * release-please-config.json should preview as adding a component.
+ * is right for it and wrong here for a file the pull request changes: after
+ * the merge, master carries the pull request's version of it. A branch that
+ * adds a component to release-please-config.json should preview as adding a
+ * component. Which files those are is `project`'s call -- a file the pull
+ * request leaves alone stays with the target branch, because the checkout
+ * can lag it -- and this serves whatever it is given.
  */
 export interface HeadOverrides {
   [path: string]: unknown;
