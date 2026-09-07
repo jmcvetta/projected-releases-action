@@ -22,8 +22,8 @@ import type {
 } from "release-please";
 import { armBoundaryWatch, drainBoundaries } from "./boundary.js";
 import type { UnresolvedBoundary } from "./boundary.js";
-import { commitSource, walkPageSize } from "./commits.js";
-import type { CommitFiles } from "./commits.js";
+import { historySource, walkPageSize } from "./history.js";
+import type { CommitFiles } from "./history.js";
 import { componentOfBranch } from "./conventional.js";
 import { ROOT_PACKAGE_PATH, splitFiles } from "./split.js";
 import type {
@@ -409,7 +409,7 @@ export interface ProjectOptions {
    * reads from the target branch. See ReadHeadFile in pr-view.ts. */
   readHeadFile?: ReadHeadFile;
   /** commitFiles answers a commit's file list without the API, when the
-   * caller has a checkout that can. See CommitFiles in commits.ts. */
+   * caller has a checkout that can. See CommitFiles in history.ts. */
   commitFiles?: CommitFiles;
   /**
    * branch are the commits merging puts on the target branch individually,
@@ -590,13 +590,13 @@ export async function project(options: ProjectOptions): Promise<Projection> {
           manifestOptions,
         );
 
-  // Both passes read the target branch through one walk, cached between them,
-  // and both serve file lists from the checkout when there is one. Every
-  // question either pass asks of that history is answered from the one walk,
-  // which is why the batch size goes here as well as to the manifest: the
-  // release search release-please runs first passes none of its own, and
-  // would otherwise page at ten.
-  const source = commitSource(options.github, {
+  // Both passes read the branch's commits, the releases and the tags through
+  // one walk each, cached between them, and both serve commit file lists from
+  // the checkout when there is one. Every question either pass asks of the
+  // branch's commits is answered from the one walk, which is why the page size
+  // goes here as well as to the manifest: the release search release-please
+  // runs first passes none of its own, and would otherwise page at ten.
+  const source = historySource(options.github, {
     ...(options.commitFiles ? { files: options.commitFiles } : {}),
     batchSize: walkBatchSize,
   });

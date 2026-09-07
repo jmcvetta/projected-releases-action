@@ -11,7 +11,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { setLogger } from "release-please";
-import { UPSTREAM_BATCH_SIZE } from "./commits.js";
+import { UPSTREAM_BATCH_SIZE } from "./history.js";
 import { fakeScm, RELEASE_SHA, walkRecord } from "./fake-scm.fixture.js";
 import type { WalkRecord } from "./fake-scm.fixture.js";
 import {
@@ -857,7 +857,7 @@ describe("the commit walk", () => {
     // different depths -- in plain mode the release search asks 250 and the
     // pull request build asks 500 -- so each cap is applied when the cache is
     // replayed rather than to the read itself, which nothing may truncate.
-    // See src/commits.ts.
+    // See src/history.ts.
     expect(record.walks[0]?.options).toEqual({
       batchSize: COMMIT_BATCH_SIZE,
       backfillFiles: true,
