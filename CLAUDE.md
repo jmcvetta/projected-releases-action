@@ -428,7 +428,7 @@ A projection runs release-please twice over the same target branch, and the
 second walk used to re-read every commit the first one had already read. On a
 repository where the walk is expensive that is the whole cost paid twice: 103
 seconds became a 183-second step on `jmcvetta/career` (issue #54).
-`commits.ts` memoizes the walk, and `pr-view.ts`'s synthetic commit is yielded
+`history.ts` memoizes the walk, and `pr-view.ts`'s synthetic commit is yielded
 in front of it.
 
 **Do not delegate to the upstream iterator with `yield*`.** release-please
@@ -436,6 +436,28 @@ stops a walk by breaking out of a `for await`, which calls `return()` on the
 generator it is reading, and `yield*` forwards that upstream -- closing the
 shared walk for good and leaving the second pass with only what the first
 happened to need. Pulling one commit at a time leaves it suspended instead.
+
+**The releases and the tags are memoized by the same mechanism, and they were
+read more times than the commits.** Each pass asks for them twice --
+`Manifest.fromConfig` resolves the last release through `latestReleaseVersion`
+and `buildPullRequests` resolves it again per component -- so a plain-mode
+projection listed the releases four times with identical pages, 1.3s of a
+7.1s step on run 34031929980 (issue #66). `tagIterator` is the fallback when
+no release resolves and is asked for as many times.
+
+The two release callers disagree about how much they want: `latestReleaseVersion`
+passes no `maxResults` and `buildPullRequests` passes `releaseSearchDepth`.
+**So the shared walk is started uncapped and each consumer's cap is applied to
+what it is handed** -- which reads exactly the pages the uncapped caller would
+have read, since a capped consumer leaves the shared iterator suspended at its
+cap rather than reading past it. Starting the walk capped instead would leave
+the uncapped caller short.
+
+The two caps are not read the same way upstream and this does not normalise
+them: `releaseIterator` reads `maxResults` with `??` and honours a zero,
+`tagIterator` reads it with `||` and treats zero as unlimited. Neither is
+asked for zero today. A wrapper that tidied the difference away would answer a
+question release-please would not.
 
 **The file lists are the other half, and they were the larger one.**
 release-please backfills `commit.files` with one serial REST call for every
@@ -468,9 +490,19 @@ the release-please run the merge will get, not a differently configured one.
 only ever runs if the upstream iterator was *started* with the wrapper as its
 receiver. Get that wrong and nothing breaks -- the API answers, the projection
 is right, the index is simply never consulted and the action is slow again. Two
-tests in `commits.test.ts` drive real release-please over the fake HTTP server
+tests in `history.test.ts` drive real release-please over the fake HTTP server
 with the index and the API disagreeing about which directory a commit touched,
 so the component that comes out names which one was read.
+
+**Every one of these caches fails silently too, and the same tests are the
+guard.** A memoized walk that stops being consulted costs pages and changes
+nothing on screen, so counting the walks needs real release-please: how many
+times it asks is a property of the manifest build, not of anything this action
+calls. `history.test.ts` therefore asserts one release walk and one tag walk
+per projection over the fake HTTP server, in plain mode as well as manifest
+mode, because plain mode is where the second caller lives. The fake records
+GraphQL queries by name for it -- every one of them is a POST to the one
+`/graphql` path, so the request log cannot tell releases from history.
 
 **What issue #54 asked for and this does not do is cap the walk.** An
 unresolved boundary sets `needsBootstrap`, which disables the early exit, and

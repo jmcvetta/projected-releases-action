@@ -61817,16 +61817,8 @@ function drainBoundaries() {
   return found;
 }
 
-// src/commits.ts
-function commitSource(github, options = {}) {
-  if (typeof github.mergeCommitIterator !== "function") return github;
-  const source = Object.create(github);
-  const serve = options.files;
-  if (serve) {
-    source.getCommitFiles = async function(sha) {
-      return serve(sha) ?? await github.getCommitFiles(sha);
-    };
-  }
+// src/history.ts
+function sharedWalk() {
   let asked;
   const walked = [];
   let upstream;
@@ -61850,33 +61842,58 @@ function commitSource(github, options = {}) {
     );
     return pull;
   };
-  source.mergeCommitIterator = async function* (targetBranch, iteratorOptions) {
+  return async function* (question, start, limit = Number.POSITIVE_INFINITY) {
+    if (asked === void 0) {
+      asked = question;
+      upstream = start();
+    } else if (question !== asked) {
+      yield* start();
+      return;
+    }
+    for (let n = 0; n < limit; n++) {
+      const item = await at(n);
+      if (item === void 0) return;
+      yield item;
+    }
+  };
+}
+function historySource(github, options = {}) {
+  if (typeof github.mergeCommitIterator !== "function") return github;
+  const source = Object.create(github);
+  const serve = options.files;
+  if (serve) {
+    source.getCommitFiles = async function(sha) {
+      return serve(sha) ?? await github.getCommitFiles(sha);
+    };
+  }
+  const commits = sharedWalk();
+  source.mergeCommitIterator = function(targetBranch, iteratorOptions) {
     const question = JSON.stringify([
       targetBranch,
       iteratorOptions?.maxResults ?? null,
       iteratorOptions?.backfillFiles ?? null,
       iteratorOptions?.batchSize ?? null
     ]);
-    if (asked === void 0) {
-      asked = question;
-      upstream = github.mergeCommitIterator.call(
-        source,
-        targetBranch,
-        iteratorOptions
-      );
-    } else if (question !== asked) {
-      yield* github.mergeCommitIterator.call(
-        source,
-        targetBranch,
-        iteratorOptions
-      );
-      return;
-    }
-    for (let n = 0; ; n++) {
-      const commit = await at(n);
-      if (!commit) return;
-      yield commit;
-    }
+    return commits(
+      question,
+      () => github.mergeCommitIterator.call(source, targetBranch, iteratorOptions)
+    );
+  };
+  const releases = sharedWalk();
+  source.releaseIterator = function(iteratorOptions) {
+    return releases(
+      "",
+      () => github.releaseIterator.call(source),
+      iteratorOptions?.maxResults ?? Number.POSITIVE_INFINITY
+    );
+  };
+  const tags = sharedWalk();
+  source.tagIterator = function(iteratorOptions) {
+    return tags(
+      "",
+      () => github.tagIterator.call(source),
+      iteratorOptions?.maxResults || Number.POSITIVE_INFINITY
+    );
   };
   return source;
 }
@@ -62232,7 +62249,7 @@ async function project(options) {
     manifestFile,
     manifestOptions
   );
-  const source = commitSource(
+  const source = historySource(
     options.github,
     options.commitFiles ? { files: options.commitFiles } : {}
   );
