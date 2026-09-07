@@ -16,15 +16,17 @@
  * projection listed the releases four times, with identical pages, before
  * this cached them (issue #66). The tags are the fallback each of those
  * reaches when a release does not resolve, so a repository whose releases all
- * resolve makes no tag walk at all and one whose releases do not makes as
- * many as it makes release walks.
+ * resolve makes no tag walk at all, and one whose releases do not makes up to
+ * one per release walk — the two callers fall through independently.
  *
  * The two release callers do not agree on how many they want:
  * `latestReleaseVersion` asks for all of them and `buildPullRequests` caps
  * the walk at the release search depth. So the release walk is started
  * uncapped and each consumer's cap is applied to what it is handed, which
- * reads the same pages upstream would have read for the uncapped caller and
- * no more.
+ * reads no more pages than upstream would have read for the deepest caller
+ * that actually ran. A capped consumer leaves the shared iterator suspended
+ * at its cap rather than reading past it — one page fewer, in fact, than
+ * upstream's own capped walk fetches when the cap lands on a page boundary.
  *
  * So every walk is memoized, one cache per distinct set of options. A cache is
  * filled by the first consumer as it is consumed, and a later one replays it
@@ -114,13 +116,22 @@ interface Slot<T> {
  *
  * `limit` caps what this consumer is handed, which is what upstream's own
  * `maxResults` does to it — applied here rather than upstream so that
- * consumers wanting different amounts of the *same* walk still share one. A
- * cap belongs in the question instead wherever it changes the items rather
- * than only how many of them there are, which is why the commit walk passes
- * its `maxResults` upstream and the release walk does not: a commit walk also
- * carries `backfillFiles`, and a walk that yielded commits with empty file
- * lists to a consumer expecting them would attribute every commit to no
- * component and silently release nothing.
+ * consumers wanting different amounts of the *same* walk still share one.
+ *
+ * Only the release and tag walks may take their cap that way, and the commit
+ * walk must not be "tidied" to match. A cap moves to replay only where
+ * upstream honours it exactly. `releaseIterator` and `tagIterator` break
+ * inside the page and yield exactly `maxResults`, so replay is equivalent.
+ * `mergeCommitIterator` does not: it fetches a page, yields **all** of it,
+ * and only then re-checks the cap (github.js), so it overshoots to the next
+ * page boundary. Both callers ask for an exact multiple today —
+ * `latestReleaseVersion` for 250 at the default page size of 10,
+ * `buildPullRequests` for 500 at this action's 100 — which is precisely why
+ * moving the cap would fail nothing. A repository that tunes
+ * `commit-search-depth` to 450 gets 500 commits from release-please and would
+ * get 450 from a replay cap, and a release whose sha sits in the fifty it
+ * lost stops counting as on-branch: a different last released version, with
+ * nothing reporting it.
  */
 function sharedWalk<T>(): (
   question: string,

@@ -488,10 +488,20 @@ as many times.
 The two release callers disagree about how much they want: `latestReleaseVersion`
 passes no `maxResults` and `buildPullRequests` passes `releaseSearchDepth`.
 **So the shared walk is started uncapped and each consumer's cap is applied to
-what it is handed** -- which reads exactly the pages the uncapped caller would
-have read, since a capped consumer leaves the shared iterator suspended at its
-cap rather than reading past it. Starting the walk capped instead would leave
-the uncapped caller short.
+what it is handed** -- which reads no more pages than upstream would have read
+for the deepest caller that actually ran, since a capped consumer leaves the
+shared iterator suspended at its cap rather than reading past it. Starting the
+walk capped instead would leave the uncapped caller short.
+
+**Only these two caps may move to replay.** A cap belongs at replay only where
+upstream honours it exactly: `releaseIterator` and `tagIterator` break inside
+the page and yield exactly `maxResults`. `mergeCommitIterator` yields the
+whole page and only then re-checks, so it overshoots to the next page
+boundary -- its cap therefore stays in the question and goes upstream. Both
+commit callers ask for an exact multiple today (250 at the default page size
+of 10, 500 at this action's 100), which is why "tidying" that one to match
+would fail nothing; a repository tuning `commit-search-depth` to 450 would
+then see 450 commits where release-please walks 500.
 
 The two caps are not read the same way upstream and this does not normalise
 them: `releaseIterator` reads `maxResults` with `??` and honours a zero,
