@@ -1,8 +1,8 @@
 # Projected Releases for release-please
 
-[![Test](https://github.com/jmcvetta/release-please-projected-releases-action/actions/workflows/test.yml/badge.svg)](https://github.com/jmcvetta/release-please-projected-releases-action/actions/workflows/test.yml)
-[![Release](https://img.shields.io/github/v/release/jmcvetta/release-please-projected-releases-action)](https://github.com/jmcvetta/release-please-projected-releases-action/releases)
-[![License](https://img.shields.io/github/license/jmcvetta/release-please-projected-releases-action)](LICENSE)
+[![Test](https://github.com/jmcvetta/projected-releases-action/actions/workflows/test.yml/badge.svg)](https://github.com/jmcvetta/projected-releases-action/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/jmcvetta/projected-releases-action)](https://github.com/jmcvetta/projected-releases-action/releases)
+[![License](https://img.shields.io/github/license/jmcvetta/projected-releases-action)](LICENSE)
 
 A GitHub Action that comments on a pull request with what
 [release-please](https://github.com/googleapis/release-please) will do when
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: jmcvetta/release-please-projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@v0
 ```
 
 That is all a repository with `release-please-config.json` and
@@ -76,7 +76,7 @@ If your release workflow configures release-please with inputs instead of
 those files, pass this action the same values:
 
 ```yaml
-      - uses: jmcvetta/release-please-projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@v0
         with:
           release-type: node
 ```
@@ -90,7 +90,7 @@ The projection follows your repository's merge settings, and assumes a
 squash-merge wherever squash is allowed. To project a different merge:
 
 ```yaml
-      - uses: jmcvetta/release-please-projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@v0
         with:
           merge-method: merge   # or rebase
 ```

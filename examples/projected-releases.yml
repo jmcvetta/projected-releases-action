@@ -48,4 +48,4 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: jmcvetta/release-please-projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@v0

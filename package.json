@@ -1,5 +1,5 @@
 {
-  "name": "release-please-projected-releases-action",
+  "name": "projected-releases-action",
   "version": "0.7.1",
   "description": "Say on a pull request which release-please tags merging it will cut.",
   "type": "module",
@@ -22,12 +22,12 @@
   "author": "Jason McVetta",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jmcvetta/release-please-projected-releases-action.git"
+    "url": "git+https://github.com/jmcvetta/projected-releases-action.git"
   },
   "bugs": {
-    "url": "https://github.com/jmcvetta/release-please-projected-releases-action/issues"
+    "url": "https://github.com/jmcvetta/projected-releases-action/issues"
   },
-  "homepage": "https://github.com/jmcvetta/release-please-projected-releases-action#readme",
+  "homepage": "https://github.com/jmcvetta/projected-releases-action#readme",
   "private": true,
   "devDependencies": {
     "@types/node": "^26.4.1",
