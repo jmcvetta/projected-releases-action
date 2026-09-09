@@ -29,6 +29,40 @@ A clean checkout plans as **`No changes.`** Anything else means either someone
 changed a setting in the web UI, or a change here has not been applied yet —
 the plan output tells you which.
 
+### Renaming the repository
+
+Change `name` in `main.tf` and apply. **The rename is the apply's to make** —
+the provider renames the repository in place rather than replacing it, so
+doing it in the web UI first is not required.
+
+Measured with `tofu plan` on the 0.7.1 tree, renaming to
+`projected-releases-action`:
+
+| Resource | Action |
+|---|---|
+| `github_repository` | updated in place — this is the rename |
+| `github_repository_ruleset` | updated in place |
+| `github_workflow_repository_permissions` | updated in place |
+| `github_repository_vulnerability_alerts` | **replaced** |
+| `github_repository_dependabot_security_updates` | **replaced** |
+
+The two replacements look alarming and are not. The provider keys those on the
+repository *name*, so a new name is a new resource id; each holds one boolean,
+and destroying and re-creating it sets that boolean back to what the
+configuration says. Nothing accumulates in them to lose.
+
+`github_repository` is the one where a replacement would matter, because
+destroying it deletes the repository. It does not replace, and a plan that
+ever says it does is a plan to stop and read rather than apply.
+
+Read the plan before applying regardless. That is the standing rule below and
+it is not weakened by having measured this once: the answer above is a
+property of a provider version, not a law.
+
+GitHub redirects the old name for clones, links and `uses:` lines, so callers
+keep working — but only until somebody creates a repository under the old
+name, which is a thing anyone may do.
+
 ### The provider lock has to be what init produces
 
 `.terraform.lock.hcl` is committed, and CI fails if `tofu init` would change
