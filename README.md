@@ -4,14 +4,10 @@
 [![Release](https://img.shields.io/github/v/release/jmcvetta/release-please-projected-releases-action)](https://github.com/jmcvetta/release-please-projected-releases-action/releases)
 [![License](https://img.shields.io/github/license/jmcvetta/release-please-projected-releases-action)](LICENSE)
 
-A GitHub Action that answers, on the pull request itself, what
+A GitHub Action that comments on a pull request with what
 [release-please](https://github.com/googleapis/release-please) will do when
-the pull request merges: which packages release, at what version, and under
-which tag. When the answer is nothing, the comment says so plainly.
-
-It runs release-please itself, bundled into the action, over the commits
-the merge will write. The projection is release-please's own arithmetic, not
-a reimplementation of its rules.
+it merges: which packages release, at what version, and under which tag. The
+numbers come from release-please itself, bundled into the action.
 
 ---
 
@@ -44,11 +40,8 @@ _1 other package unchanged: `acme-ui`._
 
 ---
 
-One sticky comment, re-rendered as the title or the branch changes. When
-nothing releases there is no table, just ``None — `docs:` produces no
-release.`` When a version cannot be trusted, because the manifest names a
-version no release or tag matches, the comment says so instead of presenting
-it as the answer.
+The comment is updated as the title or the branch changes. When nothing
+releases, it says so.
 
 ## Quick start
 
@@ -72,41 +65,13 @@ jobs:
       - uses: jmcvetta/release-please-projected-releases-action@v0
 ```
 
-`edited` is in the trigger list because a title fixed after review has to
-re-render. `fetch-depth: 0` lets the action read the branch's commits from
-the checkout instead of the API. `@v0` tracks the latest `0.x`.
+That is all a repository with `release-please-config.json` and
+`.release-please-manifest.json` needs.
 
-[`examples/`](examples/) has a fuller version of this workflow, and a
-fork-safe pair for repositories that take pull requests from forks, where the
-token cannot comment.
+## Plain mode
 
-## Merge method
-
-Under a squash-merge the pull request title becomes the commit, so the title
-is what release-please parses. Under a merge commit or a rebase, the branch's
-own commits are. By default the projection follows the repository's settings,
-and models a squash wherever squash is allowed. A repository that merges the
-other way should say so:
-
-```yaml
-      - uses: jmcvetta/release-please-projected-releases-action@v0
-        with:
-          merge-method: merge   # or rebase, or squash
-```
-
-| the merge | what is projected |
-| --- | --- |
-| squash | the title and description, as one commit |
-| rebase | the branch's commits |
-| merge | the branch's commits, plus the merge commit GitHub writes |
-
-## Configuration
-
-None, where release-please reads `release-please-config.json` and
-`.release-please-manifest.json` from the repository.
-
-Without those files, release-please is configured by the inputs your release
-workflow passes `release-please-action`. Pass this action the same values:
+If your release workflow configures release-please with inputs instead of
+those files, pass this action the same values:
 
 ```yaml
       - uses: jmcvetta/release-please-projected-releases-action@v0
@@ -114,8 +79,28 @@ workflow passes `release-please-action`. Pass this action the same values:
           release-type: node
 ```
 
-`versioning-strategy` and `release-as` are passed the same way. The action
-finds the release workflow and notes on the comment where the two disagree;
-`release-workflow` points it at a specific file, or turns that check off.
+`versioning-strategy` and `release-as` work the same way. The comment warns
+when these disagree with your release workflow.
 
-Every input and output is documented in [`action.yml`](action.yml).
+## Merge method
+
+The projection follows your repository's merge settings, and assumes a
+squash-merge wherever squash is allowed. To project a different merge:
+
+```yaml
+      - uses: jmcvetta/release-please-projected-releases-action@v0
+        with:
+          merge-method: merge   # or rebase
+```
+
+| merge method | what is projected |
+| --- | --- |
+| squash | the pull request title and description, as one commit |
+| rebase | the branch's commits |
+| merge | the branch's commits, plus the merge commit |
+
+## More
+
+- [`examples/`](examples/) has a fuller workflow, and a fork-safe pair for
+  repositories that take pull requests from forks.
+- [`action.yml`](action.yml) documents every input and output.
