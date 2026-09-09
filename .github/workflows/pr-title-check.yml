@@ -27,13 +27,12 @@
 # "Features" entry and bumps a **patch** -- a feature shipped as a patch
 # release, with no error anywhere.
 #
-# This is a check rather than a required check. The master ruleset requires no
-# status checks at all, for the reason infra/github/README.md gives: the
-# release job authenticates with the default token, GitHub suppresses workflow
-# events for everything it pushes, so nothing reports on the release pull
-# request and a required check would leave the one merge that cuts a tag
-# waiting forever. Requiring this one becomes possible on the same day the
-# release job authenticates as an App.
+# This is a required check: the master ruleset requires `validate-title` and
+# nothing else, in infra/github/main.tf. The cost lands on the release pull
+# request, which the release job opens with the default token. GitHub holds
+# the workflow runs on a bot's pull request until someone with write access
+# approves them, so this check reports there one click late. Authenticating
+# the release job as a GitHub App removes the click.
 name: PR Title Check
 
 on:

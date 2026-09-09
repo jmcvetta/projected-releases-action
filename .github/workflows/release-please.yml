@@ -42,15 +42,20 @@ jobs:
       # and both go through the Issues API.
       issues: write
     steps:
-      # GitHub suppresses workflow events for anything pushed with the default
-      # token, so a release pull request opened with GITHUB_TOKEN arrives with
-      # no checks -- on the one pull request whose merge cuts a permanent tag.
-      # A GitHub App is a distinct identity, so `test` runs on it normally.
+      # A release pull request opened with GITHUB_TOKEN is a bot's pull
+      # request, and GitHub holds the workflow runs on a bot's pull request in
+      # action_required until someone with write access clicks "Approve
+      # workflows to run" -- on the one pull request whose merge cuts a
+      # permanent tag. Until 2026-06-11 it created no runs there at all. A
+      # GitHub App is a distinct identity, so `test` and `validate-title` run
+      # on its pull requests unprompted.
+      #
+      # https://github.blog/changelog/2026-06-11-bot-created-pull-requests-can-run-workflows-if-approved/
       #
       # Set the repository variable RELEASE_BOT_APP_ID and the secret
       # RELEASE_BOT_PRIVATE_KEY to use one; without them this step is skipped
       # and the fallback below is the default token. That fallback is not
-      # free: it opens the release pull request with no checks on it, and it
+      # free: it puts an approval click in front of every release, and it
       # works at all only while Settings -> Actions -> General -> "Allow
       # GitHub Actions to create and approve pull requests" is on. With that
       # off, release-please pushes its release branch and then fails on the

@@ -219,17 +219,31 @@ forever, blocking every pull request, fixable only by someone applying the
 stack by hand. Nothing tests that pair -- check it by hand when renaming either
 side.
 
-**The cost lands on the release pull request, and it is real.** GitHub
-suppresses workflow events for everything the default token pushes, and
-`release-please.yml` falls back to that token while the App variables are
-unset, so the release pull request gets **no** check runs at all -- measured
-on #42, which has zero. `validate-title` therefore sits "expected" on the one
-pull request whose merge cuts a tag, and merging it takes the admin bypass
-the ruleset declares (`bypass_mode = "pull_request"`, so it is a click in the
-merge box, recorded). Configuring `RELEASE_BOT_APP_ID` +
-`RELEASE_BOT_PRIVATE_KEY` removes the click; `test` stays unrequired until
-then, since requiring it buys nothing on a pull request already being
-bypassed.
+**The cost lands on the release pull request, and it is a click.**
+`release-please.yml` falls back to the default token while the App variables
+are unset, so the release pull request is opened by `github-actions[bot]`.
+GitHub creates the workflow runs for a bot's pull request and holds them in
+`action_required` until someone with write access clicks **Approve workflows
+to run** -- the "N workflows awaiting approval" box on the pull request.
+
+Until 2026-06-11 it created no runs at all, which is what #42's zero check
+runs record. Since then the runs arrive held: #79 carries four check runs,
+`validate-title` among them, and every one of its workflow runs is a second
+attempt whose triggering actor is a human rather than the bot that opened it.
+
+https://github.blog/changelog/2026-06-11-bot-created-pull-requests-can-run-workflows-if-approved/
+
+So `validate-title` does report on the one pull request whose merge cuts a
+tag, one click late. The admin bypass the ruleset declares (`bypass_mode =
+"pull_request"`) is a hatch for the day something goes wrong there rather
+than a step on every release. Configuring `RELEASE_BOT_APP_ID` +
+`RELEASE_BOT_PRIVATE_KEY` removes the click: an App is a distinct identity,
+so its pull requests run workflows unprompted -- measured on
+`jmcvetta/claude-daily-driver`, whose release pull requests run as
+`daily-driver-release-bot[bot]` on the first attempt, unapproved. `test`
+stayed unrequired because nothing reported there to require. That reason is
+gone now the checks do report, and requiring it is a decision nobody has
+taken.
 
 ## The release job needs permission to open a pull request
 
@@ -247,10 +261,10 @@ pull requests.
 
 The branch it pushed stays behind, so the failure looks like a partial
 success. Configuring the App (`RELEASE_BOT_APP_ID` + `RELEASE_BOT_PRIVATE_KEY`)
-sidesteps the setting entirely and is worth it for a second reason: GitHub
-suppresses workflow events for anything pushed with the default token, so a
-release pull request opened with it arrives with no checks -- on the one pull
-request whose merge cuts a permanent tag.
+sidesteps the setting entirely and is worth it for a second reason: a release
+pull request opened by `github-actions[bot]` arrives with its workflow runs
+held for approval, so the one pull request whose merge cuts a permanent tag
+reports no check until a human clicks.
 
 ## The repository's own settings live in `infra/github`
 
@@ -265,8 +279,8 @@ Two things it is worth knowing before editing that stack, both written up in
 what may be added to it (this repository is public, so state is world-readable
 and nothing credential-bearing belongs in it); and the ruleset requires
 `validate-title` and nothing else, because the release pull request is opened
-with the default token and so receives no checks at all -- see the section
-above for what that costs and what removes it.
+with the default token and so runs no check until a human approves it -- see
+the section above for what that costs and what removes it.
 
 **An apply is only half done until the state file is committed.** The apply
 happens on someone's laptop, and the state it rewrites is a file in this

@@ -124,15 +124,17 @@ exception for the one resource.
 ## What is not managed here, and why
 
 - **`test` as a required check.** `validate-title` is required (see below);
-  `test` is not, and the difference is only which cost is worth paying. GitHub
-  suppresses workflow events for anything pushed with the default token, and
-  the release job falls back to that token, so *no* check reports on the
-  release pull request — measured on #42, which has zero check runs. Requiring
-  `validate-title` therefore puts one admin-bypass click in front of every
-  release merge, which is a deliberate trade for catching a miscased type.
-  Requiring `test` as well would buy nothing more there: the release pull
-  request would still be bypassed, on the same click. It goes in when the
-  release bot App does, below, and not before.
+  `test` is not, and the difference is only which cost is worth paying. The
+  release job falls back to the default token, so the release pull request is
+  opened by `github-actions[bot]`, and GitHub holds every workflow run on a
+  bot's pull request until someone with write access clicks **Approve
+  workflows to run**. Until 2026-06-11 it created no runs at all — #42 has
+  zero check runs — and required `validate-title` sat "expected" there until
+  an admin bypassed it. Since then the checks do report, one click late: #79
+  has four of them, and merged without the bypass. Requiring `test` as well
+  would add nothing to that click, and nothing prevents it any more. It goes
+  in when someone decides it should; the release bot App below removes the
+  click itself.
 
   `preview` stays out of it whatever happens. That job is advisory by design
   and skips itself on release-please's own branches, so as a required check it
