@@ -4,9 +4,14 @@
 [![Release](https://img.shields.io/github/v/release/jmcvetta/release-please-projected-releases-action)](https://github.com/jmcvetta/release-please-projected-releases-action/releases)
 [![License](https://img.shields.io/github/license/jmcvetta/release-please-projected-releases-action)](LICENSE)
 
-A GitHub Action that comments on a pull request with the release-please tags
-merging it will cut — or says plainly that nothing is released. The numbers
-come from a bundled release-please, not a reimplementation of its rules.
+A GitHub Action that answers, on the pull request itself, what
+[release-please](https://github.com/googleapis/release-please) will do when
+the pull request merges: which packages release, at what version, and under
+which tag. When the answer is nothing, the comment says so plainly.
+
+It runs release-please itself, bundled into the action, over the pull
+request's title and changed files. The projection is release-please's own
+arithmetic, not a reimplementation of its rules.
 
 ---
 
