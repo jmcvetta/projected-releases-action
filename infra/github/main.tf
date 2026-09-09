@@ -177,18 +177,17 @@ resource "github_repository_ruleset" "master" {
     # only by someone applying this stack by hand. src/pr-title-check.test.ts
     # pins the two together.
     #
-    # KNOWN COST, until the release job authenticates as a GitHub App: the
-    # release pull request runs no check until a human approves it.
+    # KNOWN COST, until the release job authenticates as a GitHub App: this
+    # check reports on the release pull request one click late.
     # release-please.yml falls back to the default token while
     # RELEASE_BOT_APP_ID and RELEASE_BOT_PRIVATE_KEY are unset, so that pull
     # request is opened by github-actions[bot], and GitHub holds a bot's
     # workflow runs in action_required until someone with write access clicks
-    # "Approve workflows to run". Before 2026-06-11 there were no runs to
-    # approve -- #42 has zero check runs -- and this check sat "expected" on
-    # the one pull request whose merge cuts a tag, merged on the admin bypass
-    # declared above. It reports now, one click late: #79 has four check runs
-    # and took no bypass. Setting up the App removes the click and is the
-    # real fix.
+    # "Approve workflows to run" -- measured on #79, whose four check runs are
+    # each a second attempt a human triggered. It merged on a green
+    # validate-title and took no bypass, so the bypass declared above is the
+    # hatch for the day one is needed rather than a step on every release.
+    # Setting up the App removes the click and is the real fix.
     required_status_checks {
       strict_required_status_checks_policy = false
       do_not_enforce_on_create             = false

@@ -46,9 +46,9 @@ jobs:
       # request, and GitHub holds the workflow runs on a bot's pull request in
       # action_required until someone with write access clicks "Approve
       # workflows to run" -- on the one pull request whose merge cuts a
-      # permanent tag. Until 2026-06-11 it created no runs there at all. A
-      # GitHub App is a distinct identity, so `test` and `validate-title` run
-      # on its pull requests unprompted.
+      # permanent tag. (Before 2026-06-11 GitHub created no runs at all for a
+      # bot's pull request.) A GitHub App is a distinct identity, so `test`
+      # and `validate-title` run on its pull requests unprompted.
       #
       # https://github.blog/changelog/2026-06-11-bot-created-pull-requests-can-run-workflows-if-approved/
       #

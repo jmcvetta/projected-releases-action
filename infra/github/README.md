@@ -124,17 +124,21 @@ exception for the one resource.
 ## What is not managed here, and why
 
 - **`test` as a required check.** `validate-title` is required (see below);
-  `test` is not, and the difference is only which cost is worth paying. The
-  release job falls back to the default token, so the release pull request is
-  opened by `github-actions[bot]`, and GitHub holds every workflow run on a
-  bot's pull request until someone with write access clicks **Approve
-  workflows to run**. Until 2026-06-11 it created no runs at all — #42 has
-  zero check runs — and required `validate-title` sat "expected" there until
-  an admin bypassed it. Since then the checks do report, one click late: #79
-  has four of them, and merged without the bypass. Requiring `test` as well
-  would add nothing to that click, and nothing prevents it any more. It goes
-  in when someone decides it should; the release bot App below removes the
-  click itself.
+  `test` is not, and the reason is `test.yml`'s `paths:` filter. A
+  path-filtered workflow reports no check run at all rather than a skipped
+  one, so a required `test` would leave every pull request that matches
+  nothing in its allow-list pending for ever, fixable only by someone
+  hand-applying this stack. Requiring it means dropping the filter in the
+  same commit, and nothing enforces that.
+
+  What the release pull request costs is a separate thing, and it is a click
+  rather than an absence. The release job falls back to the default token, so
+  that pull request is opened by `github-actions[bot]`, and GitHub holds a
+  bot's workflow runs in `action_required` until someone with write access
+  clicks **Approve workflows to run**. `validate-title` therefore reports
+  there one click late — #79 has four check runs, each a second attempt a
+  human triggered, and it merged on a green `validate-title` without the
+  bypass. The release bot App below removes the click.
 
   `preview` stays out of it whatever happens. That job is advisory by design
   and skips itself on release-please's own branches, so as a required check it
@@ -142,8 +146,11 @@ exception for the one resource.
 
 - **`RELEASE_BOT_APP_ID` and `RELEASE_BOT_PRIVATE_KEY`.** `release-please.yml`
   switches to a GitHub App when the variable is set, and the point of doing so
-  is that an App is a distinct identity whose pushes do produce workflow
-  events, so the release pull request arrives with checks on it. The private
+  is that an App is a distinct identity, so GitHub does not hold the workflow
+  runs on its pull requests for approval — measured on
+  `jmcvetta/claude-daily-driver`, whose release pull requests run at the first
+  attempt with the App as the triggering actor. It removes an approval click,
+  not an event suppression. The private
   key cannot be managed here under the rule above, and the variable is
   deliberately not managed either: setting it while the key is missing or the
   App is not installed makes the release job fail on its first step, which is

@@ -226,24 +226,39 @@ GitHub creates the workflow runs for a bot's pull request and holds them in
 `action_required` until someone with write access clicks **Approve workflows
 to run** -- the "N workflows awaiting approval" box on the pull request.
 
-Until 2026-06-11 it created no runs at all, which is what #42's zero check
-runs record. Since then the runs arrive held: #79 carries four check runs,
-`validate-title` among them, and every one of its workflow runs is a second
-attempt whose triggering actor is a human rather than the bot that opened it.
+Measured on #79: four check runs, `validate-title` among them, and every one
+of its workflow runs a second attempt whose triggering actor is a human
+rather than the bot that opened the pull request. A run still held is visible
+as its own attempt 1 with `conclusion: action_required` -- runs 34121791275
+and 34126114688, on the 0.6.1 release branch.
 
 https://github.blog/changelog/2026-06-11-bot-created-pull-requests-can-run-workflows-if-approved/
 
+**The hold follows whoever pushed the head, and that is the third path.** A
+human pushing to the release branch -- the merge box's *Update branch* button
+-- makes the runs a human's, so they start unheld. #42's head is `Merge
+branch 'master' into release-please--...`; its four check runs are attempt 1
+with `jmcvetta` as the actor, and it merged 54 seconds after `validate-title`
+went green, taking no bypass. **An earlier note here cited #42 as having zero
+check runs. It has four**, and opened on 2026-09-04 it can be evidence for
+nothing before the changelog above: every release pull request this
+repository has ever had postdates that date.
+
 So `validate-title` does report on the one pull request whose merge cuts a
 tag, one click late. The admin bypass the ruleset declares (`bypass_mode =
-"pull_request"`) is a hatch for the day something goes wrong there rather
-than a step on every release. Configuring `RELEASE_BOT_APP_ID` +
-`RELEASE_BOT_PRIVATE_KEY` removes the click: an App is a distinct identity,
-so its pull requests run workflows unprompted -- measured on
-`jmcvetta/claude-daily-driver`, whose release pull requests run as
-`daily-driver-release-bot[bot]` on the first attempt, unapproved. `test`
-stayed unrequired because nothing reported there to require. That reason is
-gone now the checks do report, and requiring it is a decision nobody has
-taken.
+"pull_request"`) is the hatch for the day one is needed rather than a step on
+every release. Configuring `RELEASE_BOT_APP_ID` + `RELEASE_BOT_PRIVATE_KEY`
+removes the click: an App is a distinct identity, so GitHub does not hold the
+runs on its pull requests -- measured on `jmcvetta/claude-daily-driver`,
+whose release pull requests run as `daily-driver-release-bot[bot]` on the
+first attempt, unapproved.
+
+**`test` stays unrequired, and the reason is `test.yml`'s `paths:` filter
+rather than anything about the release pull request.** A path-filtered
+workflow reports no check run at all rather than a skipped one, so a required
+`test` would leave every pull request matching nothing in its allow-list
+pending for ever -- a documentation change like this one included. Requiring
+it means dropping the filter in the same commit, and nothing enforces that.
 
 ## The release job needs permission to open a pull request
 
