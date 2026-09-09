@@ -24,6 +24,7 @@ import { armBoundaryWatch, drainBoundaries } from "./boundary.js";
 import type { UnresolvedBoundary } from "./boundary.js";
 import { historySource, walkPageSize } from "./history.js";
 import type { CommitFiles } from "./history.js";
+import { retryingGraphql } from "./graphql-retry.js";
 import { componentOfBranch } from "./conventional.js";
 import { ROOT_PACKAGE_PATH, splitFiles } from "./split.js";
 import type {
@@ -610,7 +611,13 @@ export async function project(options: ProjectOptions): Promise<Projection> {
   // branch's commits is answered from the one walk, which is why the page size
   // goes here as well as to the manifest: the release search release-please
   // runs first passes none of its own, and would otherwise page at ten.
-  const source = historySource(options.github, {
+  //
+  // The retry wrapper goes underneath, and the order is load-bearing:
+  // `historySource` starts the upstream iterators with its own wrapper as the
+  // receiver, so a retry installed above it is never the `this.graphql`
+  // release-please reaches. Inverted, nothing breaks and nothing is ever
+  // retried.
+  const source = historySource(retryingGraphql(options.github), {
     ...(options.commitFiles ? { files: options.commitFiles } : {}),
     batchSize: walkBatchSize,
   });

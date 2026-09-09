@@ -3327,7 +3327,7 @@ var require_ansi_styles = __commonJS({
       });
     };
     var colorConvert;
-    var makeDynamicStyles = (wrap, targetSpace, identity, isBackground) => {
+    var makeDynamicStyles = (wrap2, targetSpace, identity, isBackground) => {
       if (colorConvert === void 0) {
         colorConvert = require_color_convert();
       }
@@ -3336,9 +3336,9 @@ var require_ansi_styles = __commonJS({
       for (const [sourceSpace, suite] of Object.entries(colorConvert)) {
         const name2 = sourceSpace === "ansi16" ? "ansi" : sourceSpace;
         if (sourceSpace === targetSpace) {
-          styles[name2] = wrap(identity, offset);
+          styles[name2] = wrap2(identity, offset);
         } else if (typeof suite === "object") {
-          styles[name2] = wrap(suite[targetSpace], offset);
+          styles[name2] = wrap2(suite[targetSpace], offset);
         }
       }
       return styles;
@@ -11006,7 +11006,7 @@ var require_code_gen = __commonJS({
         var loc = this.currentLocation || { start: {} };
         return new SourceNode(loc.start.line, loc.start.column, this.srcFile);
       },
-      wrap: function wrap(chunk) {
+      wrap: function wrap2(chunk) {
         var loc = arguments.length <= 1 || arguments[1] === void 0 ? this.currentLocation || { start: {} } : arguments[1];
         if (chunk instanceof SourceNode) {
           return chunk;
@@ -21447,7 +21447,7 @@ var require_index_node_cjs = __commonJS({
       let currParent = this.parent, currParentProperty = this.parentProperty;
       let {
         flatten,
-        wrap
+        wrap: wrap2
       } = this;
       this.currResultType = this.resultType;
       this.currEval = this.eval;
@@ -21469,7 +21469,7 @@ var require_index_node_cjs = __commonJS({
         flatten = Object.hasOwn(expr, "flatten") ? expr.flatten : flatten;
         this.currResultType = Object.hasOwn(expr, "resultType") ? expr.resultType : this.currResultType;
         this.currSandbox = Object.hasOwn(expr, "sandbox") ? expr.sandbox : this.currSandbox;
-        wrap = Object.hasOwn(expr, "wrap") ? expr.wrap : wrap;
+        wrap2 = Object.hasOwn(expr, "wrap") ? expr.wrap : wrap2;
         this.currEval = Object.hasOwn(expr, "eval") ? expr.eval : this.currEval;
         callback = Object.hasOwn(expr, "callback") ? expr.callback : callback;
         this.currOtherTypeCallback = Object.hasOwn(expr, "otherTypeCallback") ? expr.otherTypeCallback : this.currOtherTypeCallback;
@@ -21494,9 +21494,9 @@ var require_index_node_cjs = __commonJS({
         return ea && !ea.isParentSelector;
       });
       if (!result.length) {
-        return wrap ? [] : void 0;
+        return wrap2 ? [] : void 0;
       }
-      if (!wrap && result.length === 1 && !result[0].hasArrExpr) {
+      if (!wrap2 && result.length === 1 && !result[0].hasArrExpr) {
         return this._getPreferredOutput(result[0]);
       }
       return result.reduce((rslt, ea) => {
@@ -26848,7 +26848,7 @@ var require_xpath = __commonJS({
       var join = function(s, xs) {
         return xs.join(s);
       };
-      var wrap = function(pref, suf, str) {
+      var wrap2 = function(pref, suf, str) {
         return pref + str + suf;
       };
       var prototypeConcat = Array.prototype.concat;
@@ -28583,7 +28583,7 @@ var require_xpath = __commonJS({
         return Utilities.instance_of(res, XNumber) ? c.contextPosition === res.numberValue() : res.booleanValue();
       };
       PathExpr.predicateString = function(predicate) {
-        return wrap("[", "]", predicate.toString());
+        return wrap2("[", "]", predicate.toString());
       };
       PathExpr.predicatesString = function(predicates) {
         return join(
@@ -28595,10 +28595,10 @@ var require_xpath = __commonJS({
         if (this.filter != void 0) {
           var filterStr = toString(this.filter);
           if (Utilities.instance_of(this.filter, XString)) {
-            return wrap("'", "'", filterStr);
+            return wrap2("'", "'", filterStr);
           }
           if (this.filterPredicates != void 0 && this.filterPredicates.length) {
-            return wrap("(", ")", filterStr) + PathExpr.predicatesString(this.filterPredicates);
+            return wrap2("(", ")", filterStr) + PathExpr.predicatesString(this.filterPredicates);
           }
           if (this.locationPath != void 0) {
             return filterStr + (this.locationPath.absolute ? "" : "/") + toString(this.locationPath);
@@ -28806,7 +28806,7 @@ var require_xpath = __commonJS({
           )(n) && (n.target || n.nodeName) === this.name;
         },
         toString: function() {
-          return wrap('processing-instruction("', '")', this.name);
+          return wrap2('processing-instruction("', '")', this.name);
         }
       }, function(name2) {
         this.name = name2;
@@ -60108,7 +60108,7 @@ var require_github2 = __commonJS({
     var code_suggester_1 = require_code_suggester();
     var errors_1 = require_errors();
     var MAX_ISSUE_BODY_SIZE = 65536;
-    var MAX_SLEEP_SECONDS = 20;
+    var MAX_SLEEP_SECONDS2 = 20;
     var logger_1 = require_logger();
     var manifest_1 = require_manifest();
     var github_api_1 = require_github_api();
@@ -60177,7 +60177,7 @@ var require_github2 = __commonJS({
             if (maxRetries >= 0) {
               this.logger.trace(`sleeping ${seconds} seconds`);
               await (0, exports2.sleepInMs)(1e3 * seconds);
-              seconds = Math.min(seconds * 2, MAX_SLEEP_SECONDS);
+              seconds = Math.min(seconds * 2, MAX_SLEEP_SECONDS2);
             }
           }
           this.logger.trace("ran out of retries");
@@ -61933,6 +61933,96 @@ function historySource(github, options = {}) {
   return source;
 }
 
+// src/graphql-retry.ts
+var TRANSIENT_MESSAGE = "Something went wrong while executing your query";
+var TRANSIENT_TYPES = /* @__PURE__ */ new Set(["SERVICE_UNAVAILABLE", "INTERNAL"]);
+var OVERSIZED_TYPE = "MAX_NODE_LIMIT_EXCEEDED";
+var RETRIES = 5;
+var MAX_SLEEP_SECONDS = 20;
+function transientOne(one) {
+  if (!one || typeof one !== "object") return false;
+  const { message, type } = one;
+  if (typeof type === "string") return TRANSIENT_TYPES.has(type);
+  return typeof message === "string" && message.startsWith(TRANSIENT_MESSAGE);
+}
+function transientGraphqlError(error) {
+  const errors = error?.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  return errors.every(transientOne);
+}
+function oversizedGraphqlError(error) {
+  const errors = error?.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  return errors.every(
+    (one) => !!one && typeof one === "object" && one.type === OVERSIZED_TYPE
+  );
+}
+function retryable(error, opts) {
+  if (transientGraphqlError(error)) return true;
+  return oversizedGraphqlError(error) && typeof opts.num === "number" && opts.num > 1;
+}
+function shrink(opts) {
+  if (typeof opts.num !== "number" || opts.num <= 1) return void 0;
+  const next = Math.max(1, Math.floor(opts.num / 2));
+  opts.num = next;
+  return next;
+}
+function wrap(holder, run) {
+  if (typeof holder.graphqlRequest !== "function") return void 0;
+  const original = holder.graphqlRequest;
+  const source = Object.create(holder);
+  source.graphqlRequest = async function(opts, requestOptions) {
+    const query = String(opts.query ?? "");
+    const settled = run.ceilings.get(query);
+    if (settled !== void 0 && typeof opts.num === "number") {
+      opts.num = Math.min(opts.num, settled);
+    }
+    let left = run.retries;
+    let seconds = 1;
+    let shrunk = false;
+    for (; ; ) {
+      try {
+        const answer = await original(opts, requestOptions);
+        if (answer === void 0) {
+          throw new Error(
+            "GitHub did not answer a GraphQL query, and release-please ran out of retries"
+          );
+        }
+        if (shrunk && typeof opts.num === "number") {
+          run.ceilings.set(query, opts.num);
+        }
+        return answer;
+      } catch (error) {
+        if (left <= 0 || !retryable(error, opts)) throw error;
+        const page = shrink(opts);
+        shrunk = shrunk || page !== void 0;
+        run.log(
+          `GitHub would not answer a GraphQL query; asking again in ${seconds}s, ${left} attempt(s) left` + (page === void 0 ? "" : ` at a page of ${page}`)
+        );
+        await run.sleep(1e3 * seconds);
+        seconds = Math.min(seconds * 2, MAX_SLEEP_SECONDS);
+        left -= 1;
+      }
+    }
+  };
+  return source;
+}
+function retryingGraphql(github, options = {}) {
+  const run = {
+    retries: options.retries ?? RETRIES,
+    sleep: options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms))),
+    log: options.log ?? ((message) => console.error(message)),
+    ceilings: /* @__PURE__ */ new Map()
+  };
+  const holder = github;
+  const inner = holder.gitHubApi && typeof holder.gitHubApi === "object" ? wrap(holder.gitHubApi, run) : void 0;
+  const outer = wrap(holder, run);
+  if (!outer && !inner) return github;
+  const source = outer ?? Object.create(github);
+  if (inner) source.gitHubApi = inner;
+  return source;
+}
+
 // src/conventional.ts
 import { readFileSync } from "node:fs";
 var data = JSON.parse(
@@ -62289,7 +62379,7 @@ async function project(options) {
     manifestFile,
     manifestOptions
   );
-  const source = historySource(options.github, {
+  const source = historySource(retryingGraphql(options.github), {
     ...options.commitFiles ? { files: options.commitFiles } : {},
     batchSize: walkBatchSize
   });

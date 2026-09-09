@@ -688,6 +688,64 @@ with no warning anywhere, which is the failure this repository dislikes most.
 Reading the walk once and serving its file lists locally removes the cost the
 cap was for.
 
+## A transient GraphQL failure is retried, and the seam is `graphqlRequest`
+
+GitHub answers a query it could not finish with an HTTP **200** carrying an
+`errors` array -- `Something went wrong while executing your query`. Octokit
+raises that as a `GraphqlResponseError`, which has no `status`, so
+release-please's own retry loop (`err.status !== 502` and it rethrows) drops it
+on the first attempt. `project.ts` catches the second pass and not the first,
+so one failed page was the whole run: a stack trace where a comment should be
+(issue #74). Observed on 2026-09-09 on `Green-Pagoda/pagoda`#413 and
+`jmcvetta/claude-daily-driver`#120 within the same hour -- two repositories of
+very different sizes, which is what says the history's length is not the
+variable. The requested page is: this action walks at 100 where release-please
+walks at 10, and the query asks per commit for ten pull requests each carrying
+a hundred file paths.
+
+`graphql-retry.ts` retries it, backing off and halving the page as upstream's
+own loop does for the 502 it does retry. The cursor is per page, so a smaller
+page changes where the walk stops for breath and nothing about what it yields.
+It also retries the one *refusal* a smaller page answers,
+`MAX_NODE_LIMIT_EXCEEDED`, and only while there is a page left to halve.
+
+**The receiver trap has a second form, and this is it.** The note above says an
+override only runs if the upstream iterator was *started* with the wrapper as
+its receiver. That is necessary and not sufficient. `graphqlRequest` is an
+**arrow function assigned in the constructor**, so the `this.graphql` inside it
+is the instance it was built on, captured lexically and immune to the receiver:
+shadowing `graphql` compiles, runs, and is never called. Shadow
+`graphqlRequest` instead -- `mergeCommitsGraphQL` is an ordinary prototype
+method, so the receiver reaches that one.
+
+**Upstream gives up by returning `undefined`, and `mergeCommitIterator` reads a
+missing response as a branch that does not exist.** It breaks out of its loop,
+so a request that ran out of retries is a *short history* rather than an error
+-- a missing boundary, `needsBootstrap`, a version over the wrong span, nothing
+on screen. The wrapper throws on both ways of giving up, its own and upstream's.
+
+**The page it settles at is remembered per query, and only a page this wrapper
+took away is remembered.** A walk is many requests, so climbing back to a size
+GitHub has already refused pays a failure and a backoff on every page; two
+queries asking for the same number of nodes are not asking for the same work,
+so one settling smaller says nothing about the other; and a consumer that
+legitimately asks for less must not set the size for one that asks for more.
+
+**Upstream's last retry drops straight to a page of one, and this deliberately
+does not.** Halving all the way down keeps every size the ladder reaches a size
+worth keeping, which the ceiling then does keep. Copying the emergency instead
+would turn one bad minute into the setting for the whole run -- a five-page
+commit walk paying five hundred serial requests, each still backfilling file
+lists, with one retry's stderr to explain it.
+
+**Both objects holding a `graphqlRequest` are wrapped.** The commit walk goes
+through the client's own; the release and pull request walks are delegated to a
+`gitHubApi` the client holds, which has one of its own, reached because
+`GitHub.releaseIterator` reads `this.gitHubApi`. Wrapping only the first leaves
+the release walk uncovered -- and every projection asks for the releases, so
+the same failure there lands in the same uncaught pass. `tagIterator` is REST
+pagination and is covered by neither.
+
 ## What each merge method actually puts on the target branch
 
 Measured against real release-please, not read off the source
