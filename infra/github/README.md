@@ -31,19 +31,15 @@ the plan output tells you which.
 
 ### Renaming the repository
 
-Change `name` in `main.tf` and apply: the provider renames the repository in
-place, so there is no need to rename it in the web UI first.
+Change `name` in `main.tf` and apply.
 
-The plan reads worse than it is. `github_repository_vulnerability_alerts` and
-`github_repository_dependabot_security_updates` are **replaced** rather than
-updated, because `repository` is `ForceNew` on both. Each holds one boolean,
-and the create half sets it back to what the configuration says.
+The plan replaces `github_repository_vulnerability_alerts` and
+`github_repository_dependabot_security_updates`, which is expected: each holds
+one boolean that the apply restores. It must **update `github_repository` in
+place** — a plan proposing to replace that one deletes the repository, so stop
+and read it.
 
-`github_repository` itself updates in place. A plan that proposes replacing it
-is one to stop and read, because destroying it deletes the repository.
-
-GitHub redirects the old name for clones, links and `uses:` lines, so callers
-keep working — but only until somebody creates a repository under the old name.
+GitHub redirects the old name until somebody creates a repository under it.
 
 ### The provider lock has to be what init produces
 
