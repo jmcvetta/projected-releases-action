@@ -81,7 +81,7 @@ jobs:
           name: projected-releases
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
-      - uses: jmcvetta/release-please-projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@v0
         with:
           mode: comment
           number: ${{ steps.pr.outputs.number }}

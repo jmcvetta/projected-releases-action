@@ -1,5 +1,4 @@
-# GitHub configuration for the release-please-projected-releases-action
-# repository.
+# GitHub configuration for the projected-releases-action repository.
 #
 # See README.md for how to run it, and for the rule governing what may be added
 # to this stack.
@@ -14,7 +13,7 @@
 # subjects on master and break version selection silently -- silently, because
 # a release pull request would still open, just with the wrong number on it.
 resource "github_repository" "projected_releases" {
-  name = "release-please-projected-releases-action"
+  name = "projected-releases-action"
   # The one line most readers ever see, so it says what the action does rather
   # than what it is compatible with. Manifest and plain mode both work; that
   # belongs in the README, not in the sentence under the repository name.

@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: jmcvetta/release-please-projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@v0
         with:
           mode: render
       # The rendered body, and nothing else. Which pull request it belongs to

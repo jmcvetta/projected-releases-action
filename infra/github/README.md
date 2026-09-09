@@ -29,6 +29,18 @@ A clean checkout plans as **`No changes.`** Anything else means either someone
 changed a setting in the web UI, or a change here has not been applied yet —
 the plan output tells you which.
 
+### Renaming the repository
+
+Change `name` in `main.tf` and apply.
+
+The plan replaces `github_repository_vulnerability_alerts` and
+`github_repository_dependabot_security_updates`, which is expected: each holds
+one boolean that the apply restores. It must **update `github_repository` in
+place** — a plan proposing to replace that one deletes the repository, so stop
+and read it.
+
+GitHub redirects the old name until somebody creates a repository under it.
+
 ### The provider lock has to be what init produces
 
 `.terraform.lock.hcl` is committed, and CI fails if `tofu init` would change
