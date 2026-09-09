@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.7.0...v0.7.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* retry a GraphQL page GitHub could not finish ([#77](https://github.com/jmcvetta/release-please-projected-releases-action/issues/77)) ([c7224bd](https://github.com/jmcvetta/release-please-projected-releases-action/commit/c7224bdcae7fa45fa2f82591c8f68b1c15b88ffd))
+
 ## [0.7.0](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.6.1...v0.7.0) (2026-09-07)
 
 
