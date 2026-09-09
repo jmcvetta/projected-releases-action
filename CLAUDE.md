@@ -703,10 +703,11 @@ variable. The requested page is: this action walks at 100 where release-please
 walks at 10, and the query asks per commit for ten pull requests each carrying
 a hundred file paths.
 
-`graphql-retry.ts` retries it, backing off and halving the page exactly as
-upstream's own loop does for the 502 it does retry. The cursor is per page, so
-a smaller page changes where the walk stops for breath and nothing about what
-it yields.
+`graphql-retry.ts` retries it, backing off and halving the page as upstream's
+own loop does for the 502 it does retry. The cursor is per page, so a smaller
+page changes where the walk stops for breath and nothing about what it yields.
+It also retries the one *refusal* a smaller page answers,
+`MAX_NODE_LIMIT_EXCEEDED`, and only while there is a page left to halve.
 
 **The receiver trap has a second form, and this is it.** The note above says an
 override only runs if the upstream iterator was *started* with the wrapper as
@@ -723,17 +724,27 @@ so a request that ran out of retries is a *short history* rather than an error
 -- a missing boundary, `needsBootstrap`, a version over the wrong span, nothing
 on screen. The wrapper throws on both ways of giving up, its own and upstream's.
 
-**The page it settles at is remembered per query, and lowers only to a size
-that was served.** A walk is many requests, so climbing back to a size GitHub
-has already refused pays a failure and a backoff on every page; and two queries
-asking for the same number of nodes are not asking for the same work, so one
-settling smaller says nothing about the other. What was *served* is the
-ceiling, not what was last tried -- the last retry forces a page of one, and
-only its succeeding makes one the ceiling.
+**The page it settles at is remembered per query, and only a page this wrapper
+took away is remembered.** A walk is many requests, so climbing back to a size
+GitHub has already refused pays a failure and a backoff on every page; two
+queries asking for the same number of nodes are not asking for the same work,
+so one settling smaller says nothing about the other; and a consumer that
+legitimately asks for less must not set the size for one that asks for more.
 
-**What it does not cover.** `releaseIterator` delegates to a separate client
-object the instance holds and `tagIterator` is REST pagination; neither reaches
-`graphqlRequest`, and neither carries a page size to shrink.
+**Upstream's last retry drops straight to a page of one, and this deliberately
+does not.** Halving all the way down keeps every size the ladder reaches a size
+worth keeping, which the ceiling then does keep. Copying the emergency instead
+would turn one bad minute into the setting for the whole run -- a five-page
+commit walk paying five hundred serial requests, each still backfilling file
+lists, with one retry's stderr to explain it.
+
+**Both objects holding a `graphqlRequest` are wrapped.** The commit walk goes
+through the client's own; the release and pull request walks are delegated to a
+`gitHubApi` the client holds, which has one of its own, reached because
+`GitHub.releaseIterator` reads `this.gitHubApi`. Wrapping only the first leaves
+the release walk uncovered -- and every projection asks for the releases, so
+the same failure there lands in the same uncaught pass. `tagIterator` is REST
+pagination and is covered by neither.
 
 ## What each merge method actually puts on the target branch
 

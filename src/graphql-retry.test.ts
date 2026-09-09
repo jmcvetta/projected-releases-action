@@ -118,10 +118,12 @@ describe("the retry", () => {
     expect(stub.pages).toHaveLength(3);
   });
 
-  it("halves the page each time, and asks for one on the last attempt", async () => {
-    // The page is why the query was too much work to finish. Halving is
-    // release-please's own answer to the 502 it does retry, and the cursor is
+  it("halves the page each time, and never drops straight to one", async () => {
+    // The page is why the query was too much work to finish, and the cursor is
     // per page, so a smaller page changes nothing about what the walk yields.
+    // Upstream drops to a single commit on its own last retry; this does not,
+    // because the size that worked is kept, and a page of one taken as an
+    // emergency would become the setting for every page after it.
     const stub = client([
       transient(),
       transient(),
@@ -133,7 +135,7 @@ describe("the retry", () => {
     const source = retryingGraphql(stub.github, { ...nap, retries: 5 });
 
     await ask(source, { num: 100 });
-    expect(stub.pages).toEqual([100, 50, 25, 12, 6, 1]);
+    expect(stub.pages).toEqual([100, 50, 25, 12, 6, 3]);
   });
 
   it("keeps the page that worked, for every later request", async () => {
@@ -150,15 +152,43 @@ describe("the retry", () => {
   });
 
   it("lowers that page only to a size that was served", async () => {
-    // The last size tried is not the one that worked: a request that ran out
-    // of halvings and succeeded at one commit is the only thing that makes a
-    // page of one the ceiling.
     const stub = client([transient(), transient(), { ok: 1 }, { ok: 2 }]);
     const source = retryingGraphql(stub.github, { ...nap, retries: 2 });
 
     await ask(source, { num: 100 });
     await ask(source, { num: 100 });
-    expect(stub.pages).toEqual([100, 50, 1, 1]);
+    expect(stub.pages).toEqual([100, 50, 25, 25]);
+  });
+
+  it("does not lower it for a request that never shrank", async () => {
+    // A consumer legitimately asking for less must not set the size for one
+    // that asks for more: only a page this wrapper took away is remembered.
+    const stub = client([{ ok: 1 }, { ok: 2 }]);
+    const source = retryingGraphql(stub.github, nap);
+
+    await ask(source, { query: "q", num: 10 });
+    await ask(source, { query: "q", num: 100 });
+    expect(stub.pages).toEqual([10, 100]);
+  });
+
+  it("asks again about a query refused for asking too much", async () => {
+    // Not a transient failure -- asked again unchanged it is refused again --
+    // but it is the one refusal a smaller attempt answers.
+    const stub = client([graphqlError({ type: "MAX_NODE_LIMIT_EXCEEDED" }), { ok: 1 }]);
+    const source = retryingGraphql(stub.github, nap);
+
+    await ask(source, { num: 100 });
+    expect(stub.pages).toEqual([100, 50]);
+  });
+
+  it("does not, when there is no page left to give up", async () => {
+    // The attempts would spend the backoff to arrive at the same refusal.
+    const refused = graphqlError({ type: "MAX_NODE_LIMIT_EXCEEDED" });
+    const stub = client([refused, { ok: 1 }]);
+    const source = retryingGraphql(stub.github, nap);
+
+    await expect(ask(source, { num: 1 })).rejects.toBe(refused);
+    expect(stub.pages).toEqual([1]);
   });
 
   it("keeps a page per query, not per client", async () => {
@@ -193,7 +223,7 @@ describe("the retry", () => {
     const source = retryingGraphql(stub.github, { ...nap, retries: 2 });
 
     await expect(ask(source, { num: 100 })).rejects.toBe(last);
-    expect(stub.pages).toEqual([100, 50, 1]);
+    expect(stub.pages).toEqual([100, 50, 25]);
   });
 
   it("throws an error it will not ask again about, on the first attempt", async () => {
@@ -236,6 +266,22 @@ describe("the retry", () => {
     const source = retryingGraphql(stub.github, nap);
 
     await expect(ask(source, { num: 100 })).rejects.toThrow(/ran out of retries/);
+  });
+
+  it("retries the release walk too, which lives on another object", async () => {
+    // `GitHub.releaseIterator` delegates to a `gitHubApi` with a
+    // `graphqlRequest` of its own, and a projection asks for the releases on
+    // every run -- the same failure there lands in the same uncaught pass.
+    const inner = client([transient(), { ok: true }]);
+    const outer = {
+      graphqlRequest: () => Promise.resolve({ ok: "outer" }),
+      gitHubApi: inner.github,
+    } as unknown as GitHubType;
+    const source = retryingGraphql(outer, nap);
+
+    const held = (source as unknown as { gitHubApi: GitHubType }).gitHubApi;
+    expect(await ask(held, { num: 25 })).toEqual({ ok: true });
+    expect(inner.pages).toEqual([25, 12]);
   });
 
   it("hands back a client with no GraphQL call untouched", () => {
@@ -303,6 +349,41 @@ describe("a failing page, over HTTP", () => {
         "pullRequestsSince",
       ]);
       expect(fake.graphqlPages).toEqual([100, 50, 25]);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it("covers the release walk, which release-please delegates elsewhere", async () => {
+    // The releases are read through a `gitHubApi` the client holds, with a
+    // `graphqlRequest` of its own. Nothing but a real client proves the
+    // wrapper is the object that iterator ends up running against.
+    const fake = await startFakeGitHub({
+      ...REPO,
+      releases: [{ tagName: "widgets-v1.0.0", sha: "feed01" }],
+      graphqlFailures: { releases: 1 },
+    });
+    try {
+      const github = await GitHub.create({
+        owner: "acme",
+        repo: "widgets",
+        defaultBranch: "master",
+        token: "fake",
+        apiUrl: fake.url,
+        graphqlUrl: fake.url,
+      });
+      const source = retryingGraphql(github, {
+        sleep: async () => {},
+        log: () => {},
+      });
+
+      const seen: string[] = [];
+      for await (const release of source.releaseIterator({})) {
+        seen.push(release.tagName);
+      }
+
+      expect(seen).toEqual(["widgets-v1.0.0"]);
+      expect(fake.graphql).toEqual(["releases", "releases"]);
     } finally {
       await fake.close();
     }
