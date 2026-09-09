@@ -63229,7 +63229,7 @@ async function post(client, number, header, body, listed) {
   } catch (error) {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       warning(
-        "could not post the projected-releases comment: the token cannot write to this pull request. A pull request from a fork gets a read-only token; see the fork-safe workflow in the README. The projection is in this run's job summary."
+        "could not post the projected-releases comment: the token cannot write to this pull request. A pull request from a fork gets a read-only token; see the fork-safe workflows in examples/. The projection is in this run's job summary."
       );
       return;
     }

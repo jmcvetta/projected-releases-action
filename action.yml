@@ -3,7 +3,7 @@
 # A bundled JavaScript action: `dist/index.mjs` is committed, so a caller pays
 # no install step and the version they pin is the code that runs. Rebuild it
 # with `npm run build`; CI fails a pull request whose bundle is stale.
-name: release-please Projected Releases
+name: Projected Releases for release-please
 # Under 125 characters: GitHub Marketplace rejects a longer one.
 description: >-
   Say which release-please tags merging a pull request will cut, from its
@@ -27,7 +27,7 @@ inputs:
       sticky comment. `render` only writes the file and the outputs, for a
       job whose token cannot comment. `comment` posts a body an earlier job
       rendered, and projects nothing — the two halves of the fork-safe
-      arrangement in the README.
+      arrangement in `examples/`.
     required: false
     default: render-and-comment
 

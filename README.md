@@ -1,12 +1,13 @@
-# projected-releases
+# Projected Releases for release-please
 
 [![Test](https://github.com/jmcvetta/release-please-projected-releases-action/actions/workflows/test.yml/badge.svg)](https://github.com/jmcvetta/release-please-projected-releases-action/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/jmcvetta/release-please-projected-releases-action)](https://github.com/jmcvetta/release-please-projected-releases-action/releases)
 [![License](https://img.shields.io/github/license/jmcvetta/release-please-projected-releases-action)](LICENSE)
 
-A GitHub Action that comments on a pull request with the release-please tags
-merging it will cut — or says plainly that nothing is released. The numbers
-come from a bundled release-please, not a reimplementation of its rules.
+A GitHub Action that comments on a pull request with what
+[release-please](https://github.com/googleapis/release-please) will do when
+it merges: which packages release, at what version, and under which tag. The
+numbers come from release-please itself, bundled into the action.
 
 ---
 
@@ -39,24 +40,8 @@ _1 other package unchanged: `acme-ui`._
 
 ---
 
-One sticky comment, re-rendered as the title or the branch changes. When
-nothing releases there is no table, just ``None — `docs:` produces no
-release.``
-
-It also says when the numbers cannot be trusted. If a component's entry in
-`.release-please-manifest.json` names a version that no release or tag
-matches, release-please has no boundary to compute from: it replays the
-component's whole history into one changelog and reaches a version by
-arithmetic over all of it. That is what a lost tag looks like — and what a
-first release looks like — so the comment reports the disagreement and marks
-the affected version as unreliable rather than presenting it as the answer.
-
-## Does it fit your repository?
-
-- **release-please**, manifest mode or plain mode (`release-type:`).
-- **Any merge method.** Squash-merge is the default and the one that makes
-  the pull request title the commit. Merge commits and rebase are projected
-  from the branch's own commits instead — see below.
+The comment is updated as the title or the branch changes. When nothing
+releases, it says so.
 
 ## Quick start
 
@@ -80,72 +65,15 @@ jobs:
       - uses: jmcvetta/release-please-projected-releases-action@v0
 ```
 
-Keep `edited` in the trigger list: under squash-merge the projection comes
-from the title, so a title fixed after review has to re-render. Keep
-`fetch-depth: 0` too: the checkout answers what each commit changed, which the
-API otherwise answers one request per commit. `@v0` tracks the latest `0.x`,
-and [`examples/projected-releases.yml`](examples/projected-releases.yml) adds
-a `concurrency` group and skips release-please's own release pull requests.
+That is all a repository with `release-please-config.json` and
+`.release-please-manifest.json` needs. Keep `edited` in the trigger list, so
+a title fixed after review re-renders the comment, and keep `fetch-depth: 0`,
+which the merge and rebase projections need.
 
-## Merge commits and rebase
+## Plain mode
 
-A squash-merge writes one commit and its subject is the pull request title, so
-the title is what release-please parses. A merge commit or a rebase puts the
-branch's own commits on the target branch individually, and release-please
-parses those. The projection follows the repository:
-
-| the merge | what is projected |
-| --- | --- |
-| squash | the title and description, as one commit |
-| rebase | the branch's commits, each with its own files |
-| merge | the same, plus the merge commit GitHub writes above them |
-
-By default the repository's settings decide, and they resolve to squash
-wherever squash is allowed — which is nearly everywhere, and is the button
-most people press. A repository that really merges the other way should say
-so:
-
-```yaml
-      - uses: jmcvetta/release-please-projected-releases-action@v0
-        with:
-          merge-method: merge   # or rebase, or squash
-```
-
-Two things change when the branch's commits are the input. The title's type
-no longer decides anything, so a title that is not a Conventional Commit is
-not a problem and the `malformed-title` output is always `false`. And the
-merge commit is not a formality: GitHub's default `merge_commit_message` is
-`PR_TITLE`, which puts the title in the merge commit's body, where
-release-please parses it as a commit of its own — so a merge-commit repository
-releases from the title *and* from the branch. The action reads
-`merge_commit_title` and `merge_commit_message` from the repository so the
-projection matches whichever way they are set.
-
-A `Release-As:` note is worth one more sentence. Under a squash-merge the
-description becomes the commit body, so a note there reaches release-please.
-Under a rebase it does not become anything, and under a merge commit it does
-only where `merge_commit_message` is set to carry it — so a note in the
-description usually asks for a version nothing will parse. The comment says so
-when it happens; the place that always works is a git trailer at the end of a
-commit on the branch.
-
-This needs the branch's commits, with the files each one changes.
-`fetch-depth: 0` supplies them from the checkout in one `git log`, read from
-the pull request's head commit rather than from `HEAD` — on a `pull_request`
-event `actions/checkout` leaves `HEAD` at GitHub's ephemeral merge commit,
-which is not one merging writes. Without a deep checkout the action falls back
-to the API, which has no per-commit files endpoint and so costs one request
-per commit; past fifty, or past five hundred commits in the checkout, it
-declines, and the comment says the merge could not be modelled rather than
-showing the squash answer as though it were one.
-
-## Configuration
-
-None, where release-please reads `release-please-config.json` and
-`.release-please-manifest.json` from the repository.
-
-Without those files, release-please is configured by the `release-type:` your
-release workflow passes it. Pass this action the same value:
+If your release workflow configures release-please with inputs instead of
+those files, pass this action the same values:
 
 ```yaml
       - uses: jmcvetta/release-please-projected-releases-action@v0
@@ -153,29 +81,28 @@ release workflow passes it. Pass this action the same value:
           release-type: node
 ```
 
-Setting it is what selects that mode — here as on `release-please-action`,
-where its presence is likewise the switch — so the two have to agree. Set it
-where your release workflow does not and the projection describes a
-configuration that will never run.
+`versioning-strategy` and `release-as` work the same way. The comment warns
+when these disagree with your release workflow.
 
-`versioning-strategy` and `release-as` are passed the same way, and matter for
-the same reason: a workflow bumping with `always-bump-patch` releases a feature
-as a patch, and `release-as` is sticky — it holds until the line is removed. A
-projection that has not been told about either reports the version a default
-repository would get.
+## Merge method
 
-Every one of these is a second copy of a value that lives in the release
-workflow, which is why the projection checks itself against it. It finds the
-step in `.github/workflows` that calls `release-please-action`, compares the
-values it passes with the ones this action was given, and says on the comment
-where the two differ — a mode set on one side only, a `versioning-strategy`
-changed in one file and not the other. It only ever checks: nothing is read in
-to replace what you typed, and anything it cannot establish (no such workflow,
-one that does not parse, two steps that could both be the releaser, a value the
-runner resolves) produces no note rather than a guess. `release-workflow`
-points it at one file, or turns it off.
+The projection follows your repository's merge settings, and assumes a
+squash-merge wherever squash is allowed. To project a different merge:
 
-`component` and `tag-separator` go the other way: `release-please-action` has
-no input for them at all, so leave them alone unless something other than it
-cuts your releases — and the comment says so if it finds that workflow and you
-have set one.
+```yaml
+      - uses: jmcvetta/release-please-projected-releases-action@v0
+        with:
+          merge-method: merge   # or rebase
+```
+
+| merge method | what is projected |
+| --- | --- |
+| squash | the pull request title and description, as one commit |
+| rebase | the branch's commits |
+| merge | the branch's commits, plus the merge commit |
+
+## More
+
+- [`examples/`](examples/) has a fuller workflow, and a fork-safe pair for
+  repositories that take pull requests from forks.
+- [`action.yml`](action.yml) documents every input and output.
