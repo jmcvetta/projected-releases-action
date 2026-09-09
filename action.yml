@@ -27,7 +27,7 @@ inputs:
       sticky comment. `render` only writes the file and the outputs, for a
       job whose token cannot comment. `comment` posts a body an earlier job
       rendered, and projects nothing — the two halves of the fork-safe
-      arrangement in the README.
+      arrangement in `examples/`.
     required: false
     default: render-and-comment
 

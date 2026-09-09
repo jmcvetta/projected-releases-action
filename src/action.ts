@@ -265,7 +265,7 @@ async function post(
       warning(
         "could not post the projected-releases comment: the token cannot" +
           " write to this pull request. A pull request from a fork gets a" +
-          " read-only token; see the fork-safe workflow in the README. The" +
+          " read-only token; see the fork-safe workflows in examples/. The" +
           " projection is in this run's job summary.",
       );
       return;

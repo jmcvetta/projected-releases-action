@@ -66,7 +66,9 @@ jobs:
 ```
 
 That is all a repository with `release-please-config.json` and
-`.release-please-manifest.json` needs.
+`.release-please-manifest.json` needs. Keep `edited` in the trigger list, so
+a title fixed after review re-renders the comment, and keep `fetch-depth: 0`,
+which the merge and rebase projections need.
 
 ## Plain mode
 
