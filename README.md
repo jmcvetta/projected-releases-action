@@ -9,9 +9,9 @@ A GitHub Action that answers, on the pull request itself, what
 the pull request merges: which packages release, at what version, and under
 which tag. When the answer is nothing, the comment says so plainly.
 
-It runs release-please itself, bundled into the action, over the pull
-request's title and changed files. The projection is release-please's own
-arithmetic, not a reimplementation of its rules.
+It runs release-please itself, bundled into the action, over the commits
+the merge will write. The projection is release-please's own arithmetic, not
+a reimplementation of its rules.
 
 ---
 
