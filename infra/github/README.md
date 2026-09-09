@@ -46,14 +46,26 @@ Measured with `tofu plan` on the 0.7.1 tree, renaming to
 | `github_repository_vulnerability_alerts` | **replaced** |
 | `github_repository_dependabot_security_updates` | **replaced** |
 
-The two replacements look alarming and are not. The provider keys those on the
-repository *name*, so a new name is a new resource id; each holds one boolean,
-and destroying and re-creating it sets that boolean back to what the
-configuration says. Nothing accumulates in them to lose.
+The two replacements look alarming and are not. Each holds one boolean, and
+destroying and re-creating it sets that boolean back to what the configuration
+says; nothing accumulates in them to lose.
+
+**What decides a replacement is `ForceNew` on the `repository` attribute, not
+how the resource is keyed** — a distinction worth having, because the ids in
+state suggest the opposite rule and it does not hold.
+`github_repository_vulnerability_alerts` is keyed on the numeric repository id
+and is replaced; `github_workflow_repository_permissions` is keyed on the name
+and is not.
 
 `github_repository` is the one where a replacement would matter, because
-destroying it deletes the repository. It does not replace, and a plan that
-ever says it does is a plan to stop and read rather than apply.
+destroying it deletes the repository. Its `name` is not `ForceNew`, which is
+what makes the rename an in-place update; a plan that ever says otherwise is a
+plan to stop and read rather than apply.
+
+The replacement is a destroy and then a create, and the destroy runs against
+the old name after the repository has been renamed. It resolves through
+GitHub's redirect, so it works — but vulnerability alerts are briefly off
+rather than merely re-asserted.
 
 Read the plan before applying regardless. That is the standing rule below and
 it is not weakened by having measured this once: the answer above is a
