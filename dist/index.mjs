@@ -60108,7 +60108,7 @@ var require_github2 = __commonJS({
     var code_suggester_1 = require_code_suggester();
     var errors_1 = require_errors();
     var MAX_ISSUE_BODY_SIZE = 65536;
-    var MAX_SLEEP_SECONDS = 20;
+    var MAX_SLEEP_SECONDS2 = 20;
     var logger_1 = require_logger();
     var manifest_1 = require_manifest();
     var github_api_1 = require_github_api();
@@ -60177,7 +60177,7 @@ var require_github2 = __commonJS({
             if (maxRetries >= 0) {
               this.logger.trace(`sleeping ${seconds} seconds`);
               await (0, exports2.sleepInMs)(1e3 * seconds);
-              seconds = Math.min(seconds * 2, MAX_SLEEP_SECONDS);
+              seconds = Math.min(seconds * 2, MAX_SLEEP_SECONDS2);
             }
           }
           this.logger.trace("ran out of retries");
@@ -61933,6 +61933,72 @@ function historySource(github, options = {}) {
   return source;
 }
 
+// src/graphql-retry.ts
+var TRANSIENT_MESSAGE = "Something went wrong while executing your query";
+var TRANSIENT_TYPES = /* @__PURE__ */ new Set(["SERVICE_UNAVAILABLE", "INTERNAL"]);
+var RETRIES = 5;
+var MAX_SLEEP_SECONDS = 20;
+function transientOne(one) {
+  if (!one || typeof one !== "object") return false;
+  const { message, type } = one;
+  if (typeof type === "string") return TRANSIENT_TYPES.has(type);
+  return typeof message === "string" && message.startsWith(TRANSIENT_MESSAGE);
+}
+function transientGraphqlError(error) {
+  const errors = error?.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return false;
+  return errors.every(transientOne);
+}
+function shrink(opts, left) {
+  if (typeof opts.num !== "number" || opts.num <= 1) return void 0;
+  const next = left <= 1 ? 1 : Math.max(1, Math.floor(opts.num / 2));
+  opts.num = next;
+  return next;
+}
+function retryingGraphql(github, options = {}) {
+  const holder = github;
+  if (typeof holder.graphqlRequest !== "function") return github;
+  const original = holder.graphqlRequest;
+  const retries = options.retries ?? RETRIES;
+  const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
+  const log = options.log ?? ((message) => console.error(message));
+  const ceilings = /* @__PURE__ */ new Map();
+  const source = Object.create(github);
+  source.graphqlRequest = async function(opts, requestOptions) {
+    const query = String(opts.query ?? "");
+    const ceiling = ceilings.get(query) ?? Number.POSITIVE_INFINITY;
+    if (typeof opts.num === "number" && opts.num > ceiling) {
+      opts.num = ceiling;
+    }
+    let left = retries;
+    let seconds = 1;
+    for (; ; ) {
+      try {
+        const answer = await original(opts, requestOptions);
+        if (answer === void 0) {
+          throw new Error(
+            "GitHub did not answer the GraphQL query for the branch's commits, and release-please ran out of retries"
+          );
+        }
+        if (typeof opts.num === "number" && opts.num < ceiling) {
+          ceilings.set(query, opts.num);
+        }
+        return answer;
+      } catch (error) {
+        if (left <= 0 || !transientGraphqlError(error)) throw error;
+        const page = shrink(opts, left);
+        log(
+          `GitHub failed a GraphQL query on its own side; asking again in ${seconds}s, ${left} attempt(s) left` + (page === void 0 ? "" : ` at a page of ${page}`)
+        );
+        await sleep(1e3 * seconds);
+        seconds = Math.min(seconds * 2, MAX_SLEEP_SECONDS);
+        left -= 1;
+      }
+    }
+  };
+  return source;
+}
+
 // src/conventional.ts
 import { readFileSync } from "node:fs";
 var data = JSON.parse(
@@ -62289,7 +62355,7 @@ async function project(options) {
     manifestFile,
     manifestOptions
   );
-  const source = historySource(options.github, {
+  const source = historySource(retryingGraphql(options.github), {
     ...options.commitFiles ? { files: options.commitFiles } : {},
     batchSize: walkBatchSize
   });

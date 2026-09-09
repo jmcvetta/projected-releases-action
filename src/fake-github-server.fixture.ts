@@ -97,6 +97,18 @@ export interface FakeRepo {
    * advisory and nothing else. */
   repositoryStatus?: number;
   /**
+   * graphqlFailures answers the first N requests for a named operation the
+   * way GitHub reports a failure on its own side: HTTP **200**, carrying an
+   * `errors` array and no data.
+   *
+   * The status is the point. That shape is what release-please's own retry
+   * loop declines to retry, because the error Octokit raises for it carries no
+   * `status` to compare against the 502 that loop knows.
+   *
+   * Keyed by operation name, as `graphql` records them.
+   */
+  graphqlFailures?: Record<string, number>;
+  /**
    * concurrent names paths the fake holds until all of them are in flight at
    * once, which is how a test tells reads that were started together from
    * reads that were started one after another. Arrival order proves nothing:
@@ -126,6 +138,15 @@ export interface FakeGitHub {
    * repository's releases is exactly what issue #66 was about.
    */
   graphql: string[];
+  /**
+   * graphqlPages is the page size each GraphQL request asked for, in order and
+   * aligned with `graphql`, and undefined for an operation that names none.
+   *
+   * It is upstream's `num` variable, which is the thing a retry shrinks: the
+   * assertion that a retried page was smaller than the one that failed cannot
+   * be made from the operation name alone.
+   */
+  graphqlPages: (number | undefined)[];
   /** comments are the issue comments as the fake now holds them, so a test
    * can assert what was posted rather than only that a post happened. */
   comments: { id: number; body: string }[];
@@ -151,6 +172,8 @@ const BARRIER_MS = 250;
 export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
   const requests: string[] = [];
   const graphql: string[] = [];
+  const graphqlPages: (number | undefined)[] = [];
+  const failuresLeft = new Map(Object.entries(repo.graphqlFailures ?? {}));
   const comments: { id: number; body: string }[] = [];
   let nextCommentId = 100;
 
@@ -244,9 +267,32 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
         // `/graphql/graphql` falls through to the 404 below, which is the whole
         // point of serving this over real HTTP.
         if (url === "/graphql") {
-          const query = String(JSON.parse(body || "{}").query ?? "");
+          const sent = JSON.parse(body || "{}");
+          const query = String(sent.query ?? "");
           const operation = /query\s+(\w+)/.exec(query)?.[1] ?? "unknown";
           graphql.push(operation);
+          // Octokit sends everything that is not the query itself under
+          // `variables`, so the page size is one level in from where the
+          // caller wrote it.
+          const page = (sent.variables ?? sent).num;
+          graphqlPages.push(typeof page === "number" ? page : undefined);
+          const left = failuresLeft.get(operation) ?? 0;
+          if (left > 0) {
+            failuresLeft.set(operation, left - 1);
+            // GitHub's own wording and its own status: a 200 whose body says
+            // the query did not finish. See FakeRepo.graphqlFailures.
+            return send(200, {
+              data: null,
+              errors: [
+                {
+                  message:
+                    "Something went wrong while executing your query on" +
+                    " 2026-09-09T14:35:34Z. Please include `7019:2BB932` when" +
+                    " reporting this issue.",
+                },
+              ],
+            });
+          }
           if (operation === "releases") {
             return send(200, {
               data: {
@@ -449,6 +495,7 @@ export async function startFakeGitHub(repo: FakeRepo): Promise<FakeGitHub> {
     url: `http://127.0.0.1:${port}`,
     requests,
     graphql,
+    graphqlPages,
     comments,
     overlapped: () => overlapped,
     close: () =>
