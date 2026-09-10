@@ -92,6 +92,10 @@ describe("cli", () => {
     await cli(await flags());
     expect(printed()).toContain("| **1.0.0** |");
     expect(printed()).toContain("Changelog preview");
+    // What the fixture's empty `--repo-root` buys, and the only thing that
+    // says so: plain mode reports config files it finds and did not read, and
+    // the checkout this suite runs in has a pair of its own.
+    expect(printed()).not.toContain("release-please-config.json");
   });
 
   it("writes to a file instead when asked", async () => {

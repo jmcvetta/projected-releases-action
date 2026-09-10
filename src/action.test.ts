@@ -233,6 +233,10 @@ describe("action", () => {
     const body = readFileSync(env["INPUT_OUTPUT-FILE"]!, "utf8");
     expect(body).toContain("| **1.0.0** |");
     expect(body).toContain("Changelog preview");
+    // What the fixture's empty `repo-root` buys, and the only thing that says
+    // so: plain mode reports config files it finds and did not read, and the
+    // checkout this suite runs in has a pair of its own.
+    expect(body).not.toContain("release-please-config.json");
 
     const out = outputs(env);
     expect(out["body"]).toBe(body);

@@ -17,6 +17,11 @@
  * `projected-releases-action-v0.8.0`, which matches none of v0.1.0 .. v0.7.1
  * and so loses the release boundary; and a manifest version that stops
  * matching package.json is a base version somebody edited by hand.
+ *
+ * `test.yml`'s own input list is here for the same reason and not because it
+ * is release configuration: it decides whether this file runs at all, and its
+ * two halves are written out twice because GitHub Actions does not read YAML
+ * anchors.
  */
 
 import { describe, expect, it } from "vitest";
@@ -32,9 +37,12 @@ interface Step {
   with?: Record<string, unknown>;
 }
 
-/** Workflow is as much of a workflow file as this file reads. */
+/** Workflow is as much of a workflow file as this file reads. `steps` is
+ * optional because a job calling a reusable workflow has none, and a missing
+ * one read as a step is a TypeError where an assertion should be. */
 interface Workflow {
-  jobs: Record<string, { steps: Step[] }>;
+  on?: Record<string, { paths?: string[] }>;
+  jobs: Record<string, { steps?: Step[] }>;
 }
 
 /** workflow reads one of this repository's workflows. */
@@ -44,7 +52,7 @@ const workflow = (name: string) =>
 /** steps are every step of every job in a workflow, flattened: which job a
  * step sits in decides nothing here. */
 const steps = (file: Workflow) =>
-  Object.values(file.jobs).flatMap((job) => job.steps);
+  Object.values(file.jobs).flatMap((job) => job.steps ?? []);
 
 const pkg = json("../package.json") as { version: string };
 const config = json("../release-please-config.json") as {
@@ -86,6 +94,36 @@ describe(".release-please-manifest.json", () => {
     // part company only when someone edits one by hand -- and the manifest is
     // the base the next bump applies to, never the next version.
     expect(manifest["."]).toBe(pkg.version);
+  });
+});
+
+describe("test.yml's input list", () => {
+  it("says the same thing under both events", () => {
+    // Written out twice, because GitHub Actions does not read YAML anchors. A
+    // drift between the halves is invisible on a pull request and surfaces as
+    // a merge to master that skipped the leg the pull request ran.
+    const events = workflow("test.yml").on ?? {};
+    expect(Object.keys(events).sort()).toEqual(["pull_request", "push"]);
+    expect(events["pull_request"]?.paths).toEqual(events["push"]?.paths);
+    // Not vacuous: two undefined lists would compare equal.
+    expect(events["push"]?.paths?.length).toBeGreaterThan(10);
+  });
+
+  it("names every file this suite reads outside src/", () => {
+    // The allow-list does not fail safe: an input left off it is simply a file
+    // this workflow stops running on. These are the ones read by a test rather
+    // than by a build.
+    const paths = workflow("test.yml").on?.["push"]?.paths ?? [];
+    for (const name of [
+      "action.yml",
+      "release-please-config.json",
+      ".release-please-manifest.json",
+      ".github/workflows/release-please.yml",
+      ".github/workflows/projected-releases.yml",
+      ".github/workflows/test.yml",
+    ]) {
+      expect(paths, name).toContain(name);
+    }
   });
 });
 
