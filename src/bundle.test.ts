@@ -20,12 +20,19 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { startFakeGitHub } from "./fake-github-server.fixture.js";
 import type { FakeGitHub } from "./fake-github-server.fixture.js";
 
 const run = promisify(execFile);
 const BUNDLE = new URL("../dist/index.mjs", import.meta.url).pathname;
+
+/** empty is a directory holding neither of release-please's files, which is
+ * what plain mode is for. See `--repo-root` below. */
+const empty = () => mkdtempSync(join(tmpdir(), "projected-releases-"));
 
 /**
  * REPO is a single-package repository with nothing released and nothing
@@ -81,6 +88,11 @@ async function project(title: string, extra: string[] = []): Promise<string> {
       // to it does not even run this suite -- test.yml's `paths:` list does
       // not name .github/workflows.
       "--release-workflow", "off",
+      // And read no config files, for the same reason: this repository has a
+      // release-please-config.json of its own, and plain mode with those
+      // files in the checkout is a note on the comment about a repository
+      // this test is not describing.
+      "--repo-root", empty(),
       ...extra,
     ],
     { env: { ...process.env, GITHUB_TOKEN: "fake" } },

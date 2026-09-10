@@ -160,10 +160,12 @@ async function start(over: Partial<FakeRepo> = {}) {
 const tmp = () => mkdtempSync(join(tmpdir(), "projected-releases-"));
 
 /** environment is the ordinary invocation: everything through inputs, the
- * fake for both URLs, the changed files from the API and no release workflow
- * read, so nothing here depends on the checkout this suite happens to run in
- * -- which is this repository, whose own release workflow `auto` would find.
- * The comparison has its own test below, against a checkout written for it. */
+ * fake for both URLs, the changed files from the API, no release workflow read
+ * and an empty `repo-root`, so nothing here depends on the checkout this suite
+ * happens to run in -- which is this repository, whose own release workflow
+ * `auto` would find and whose own release-please-config.json plain mode would
+ * report as unread. Both have their own test below, against a checkout written
+ * for them. */
 function environment(
   server: FakeGitHub,
   over: Record<string, string> = {},
@@ -182,6 +184,7 @@ function environment(
     "INPUT_GRAPHQL-URL": `${server.url}/graphql`,
     "INPUT_CHANGED-FILES": "api",
     "INPUT_RELEASE-WORKFLOW": "off",
+    "INPUT_REPO-ROOT": dir,
     "INPUT_OUTPUT-FILE": join(dir, "projected-releases.md"),
     GITHUB_OUTPUT: join(dir, "outputs"),
     GITHUB_STEP_SUMMARY: join(dir, "summary"),

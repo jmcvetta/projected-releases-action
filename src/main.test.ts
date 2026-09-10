@@ -55,11 +55,12 @@ afterEach(async () => {
 const tmp = () => mkdtempSync(join(tmpdir(), "projected-releases-"));
 
 /** flags are the ordinary invocation. `--files` is supplied rather than
- * diffed and `--release-workflow off` reads no workflow, so nothing here
- * depends on the checkout it runs in -- which is this repository, whose own
- * release workflow the comparison would otherwise find and have opinions
- * about. The flag itself is covered below, against a checkout written for
- * it. */
+ * diffed, `--release-workflow off` reads no workflow and `--repo-root` names
+ * an empty directory, so nothing here depends on the checkout it runs in --
+ * which is this repository, whose own release workflow the comparison would
+ * otherwise find and have opinions about, and whose own
+ * release-please-config.json plain mode would report as unread. Both flags are
+ * covered below, against checkouts written for them. */
 async function flags(
   extra: string[] = [],
   over: Partial<FakeRepo> = {},
@@ -76,6 +77,10 @@ async function flags(
     "--head-sha", "c".repeat(40),
     "--files", "src/b.ts",
     "--release-workflow", "off",
+    // A root of the caller's own wins outright rather than being appended
+    // after this one: two of the same flag on one line would leave which root
+    // is read to parseArgs rather than to this file.
+    ...(extra.includes("--repo-root") ? [] : ["--repo-root", tmp()]),
     ...extra,
   ];
 }
