@@ -1,22 +1,35 @@
 # Cut releases from Conventional Commit subjects on master.
 #
-# Single package, so this is release-please's plain mode rather than the
-# manifest mode a monorepo needs: `release-type: node` makes the action call
-# `Manifest.fromConfig`, which builds its configuration from these inputs and
-# reads no release-please-config.json or .release-please-manifest.json. The
-# version lives in package.json, which the node releaser bumps along with the
-# lockfile and CHANGELOG.md.
+# One package, and still release-please's manifest mode:
+# release-please-config.json and .release-please-manifest.json hold the
+# configuration, and the *absence* of `release-type:` on the step below is
+# what selects it. Set, that input makes the action call
+# `Manifest.fromConfig`, which builds a configuration from the inputs and
+# reads neither file.
 #
-# The first release is 0.1.0, set by a `Release-As: 0.1.0` trailer on a
-# pull request merged before the release is cut. Left alone release-please would
-# have used its initial version of 1.0.0, since with no prior tag it takes
-# that from the strategy rather than bumping package.json's 0.0.0 -- and
-# `initial-version` is a config-file key that release-please-action exposes no
-# input for, so in plain mode the trailer is the way to reach it. Consumers
-# pin `@v0` until this repository is ready to say 1.0.0 and mean it.
+# The mode is manifest mode for one setting. `bump-minor-pre-major: true`
+# makes a breaking change bump the minor while the version is below 1.0.0, so
+# nothing reaches 1.0.0 except by someone asking for it. release-please-action
+# passes only release-type, path, include-component-in-tag, changelog-host,
+# versioning-strategy and release-as into `Manifest.fromConfig`, and no
+# registered versioning strategy means "a breaking change bumps the minor
+# below 1.0.0" -- so in plain mode the setting is unreachable, exactly as
+# `initial-version` is. Consumers pin `@v0` until this repository is ready to
+# say 1.0.0 and mean it.
 #
-# The trailer counts only as the last paragraph of the commit message, and
-# the squash commit's body is the pull request description. See CLAUDE.md.
+# The config declares `include-component-in-tag: false`, which plain mode
+# defaults to and a manifest package does not: without it this package's tags
+# would carry its component name and match none of v0.1.0 .. v0.7.1, which is
+# a release boundary lost rather than a cosmetic change.
+#
+# The version lives in package.json, which the node releaser bumps along with
+# the lockfile, the manifest and CHANGELOG.md.
+#
+# The first release was 0.1.0, set by a `Release-As: 0.1.0` trailer on a pull
+# request merged before the release was cut, because `initial-version` was
+# unreachable in the plain mode this repository released in then. A trailer
+# counts only as the last paragraph of the commit message, and the squash
+# commit's body is the pull request description. See CLAUDE.md.
 name: Release Please
 
 on:
@@ -70,7 +83,8 @@ jobs:
       - id: release
         uses: googleapis/release-please-action@v5
         with:
-          release-type: node
+          # No `release-type:`. Its presence is the mode switch, and this
+          # repository is configured in the two files above.
           token: ${{ steps.app-token.outputs.token || github.token }}
 
       # An action is pinned by its major tag, so `v0` has to move onto each

@@ -11,10 +11,12 @@
 # has: the unit tests drive it against fixtures, and this drives it against a
 # real repository and a real release-please.
 #
-# It works at all because the action supports release-please's non-manifest
-# mode. This repository has no release-please-config.json -- it is one
-# package, released with `release-type: node` (see release-please.yml) -- so
-# before that support existed the action could not read its own repository.
+# The step passes nothing, which is the whole configuration: this repository
+# releases in release-please's manifest mode, so the action reads the same
+# release-please-config.json and .release-please-manifest.json release-please
+# will read (see release-please.yml). An input naming the mode here would be a
+# second copy of that configuration, and a projection is only about the release
+# the other one will cut.
 name: Projected Releases
 
 on:
@@ -49,9 +51,10 @@ jobs:
       # The bundle is committed, so there is nothing to install: `uses: ./`
       # runs dist/index.mjs straight out of the checkout. CI's staleness check
       # in test.yml is what keeps that file equal to src/.
+      #
+      # No `with:` at all. `release-type` here would switch this projection
+      # to plain mode and leave the two files unread, which is release-please
+      # -action's rule copied faithfully -- and release-please.yml passes no
+      # such input, so the projection would describe a configuration that will
+      # never run. src/release-config.test.ts is what keeps the pair equal.
       - uses: ./
-        with:
-          # Matches release-please.yml. Both name the mode this repository
-          # releases in, and they have to agree: the projection is only about
-          # the release the other one will cut.
-          release-type: node
