@@ -131,14 +131,49 @@ Measured against real release-please, not read off the source:
 `package.json` does **not** seed it: with no prior tag the version comes from
 the strategy's `initialReleaseVersion()`. `initial-version` is a config-file
 key and a CLI flag; release-please-action exposes no input for it, so in plain
-mode it is unreachable.
+mode it is unreachable. That is a statement about plain mode rather than about
+this repository, which has a config file since 2026-09-10 -- see below.
 
-## This repository releases in plain mode
+## This repository releases in manifest mode, and one setting is the reason
 
-`release-type: node`, no `release-please-config.json` and no
-`.release-please-manifest.json`. That is deliberate: it is one package, and it
-keeps the dogfood workflow exercising the action's plain-mode path, which is
-where two bugs were caught that the fixtures could not see.
+`release-please-config.json` + `.release-please-manifest.json`, one package at
+`.` with `release-type: node`. It released in **plain mode** until 2026-09-10,
+which was deliberate for as long as it held: one package, and a dogfood
+workflow exercising the action's own plain-mode path.
+
+What moved it is `bump-minor-pre-major: true`. Below 1.0.0 that bumps a minor
+for a breaking change, so 1.0.0 takes a `Release-As:` trailer rather than the
+next `feat!:` -- and consumers pin `@v0`. **Plain mode cannot say it.**
+release-please-action passes `release-type`, `path`,
+`include-component-in-tag`, `changelog-host`, `versioning-strategy` and
+`release-as` into `Manifest.fromConfig` and nothing else (its `action.yml` and
+`src/index.ts`), and no registered versioning strategy means "a breaking
+change bumps the minor below 1.0.0". So the setting is unreachable there,
+exactly as `initial-version` is.
+
+**`include-component-in-tag: false` had to be written by hand, and it is the
+half of the move that could have gone wrong silently.** A manifest package
+defaults it to *true* where plain mode defaults it to false, so a straight
+move starts tagging `projected-releases-action-v0.8.0` -- which matches none of
+v0.1.0 .. v0.7.1, and a package with no matching tag has no release boundary.
+That is the `needsBootstrap` failure this action warns other repositories
+about.
+
+**What plain mode loses is production coverage, and a `mode: render` step was
+considered as a replacement and rejected.** It would catch a crash and nothing
+else, and neither bug the dogfood caught was that: both were bundling
+failures, and `bundle.test.ts` -- the committed bundle, in plain mode, against
+a fake GitHub over real HTTP -- is where they live now, with `action.test.ts`,
+`main.test.ts` and `history.test.ts`'s plain-mode walk counts either side of
+it. A step projecting a configuration this repository does not release with
+would be two copies of one configuration, which is what the dogfood step
+exists not to be.
+
+`src/release-config.test.ts` is the guard: the setting, the one package, the
+tag shape, the manifest seed against `package.json`'s version, and -- the
+quiet one -- that neither `release-please.yml` nor the dogfood step passes
+`release-type`, whose mere presence switches either of them back to a
+configuration nobody wrote down.
 
 ## Squash settings this repository relies on
 
@@ -488,9 +523,14 @@ one fact.
 this repository's own `release-please.yml`: `action.test.ts`, `main.test.ts`
 and `bundle.test.ts` therefore pass `release-workflow: off` in their shared
 fixtures and cover the comparison against a checkout written for it. That is
-not tidiness. `test.yml`'s `paths:` allow-list does not name
-`.github/workflows`, so a change to the release workflow would not run the
-suite it had just broken.
+not tidiness. `test.yml`'s `paths:` allow-list names two workflow files and not
+`.github/workflows`, so most changes to a workflow do not run the suite.
+
+**Those fixtures point `repo-root` at an empty directory for the same reason.**
+The checkout carries a `release-please-config.json` of its own since this
+repository moved to manifest mode, and a plain-mode run that finds one says so
+-- a note about this repository on every projection in a suite that is
+describing `acme/widgets`.
 
 ## The two passes read the history once, and the file lists come from git
 
@@ -511,9 +551,9 @@ the one that gets cached, and every page the pull request build reads is
 fetched twice. The release search also pages at ten, release-please passing it
 no batch size -- 25 serial pages where it finds no release pull request at
 all, and one page where the newest commit is a release. `fromConfig` is plain
-mode only, and this repository releases in plain mode, so it paid three walks
-per pull request from the day the cache was written, with the suite reporting
-one throughout (issue #65).
+mode only, and this repository released in plain mode until 2026-09-10, so it
+paid three walks per pull request from the day the cache was written, with the
+suite reporting one throughout (issue #65).
 
 **How a walk count stays green while being the wrong number.** The test that
 drove a real `Manifest` drove manifest mode, which never calls `fromConfig`;

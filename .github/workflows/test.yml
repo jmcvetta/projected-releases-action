@@ -12,14 +12,20 @@
 name: Test
 
 # `paths:` lists what this suite reads, and nothing else -- not infra/**, the
-# prose, examples/**, the Makefile, or any workflow, this one included. GitHub
-# evaluates the filter before allocating a runner, and runs the workflow when
-# any changed file matches.
+# prose, examples/**, or the Makefile. GitHub evaluates the filter before
+# allocating a runner, and runs the workflow when any changed file matches.
 #
-# Wider than src/** because two tests reach outside it: bundle.test.ts runs
-# dist/index.mjs as a process and packaging.test.ts reads action.yml. The rest
-# is what typecheck, build and install consume. Extend the list when a test
-# starts reading something new -- nothing reports an input left off it.
+# It names itself, because release-config.test.ts reads this list: it asserts
+# that the two halves below say the same thing, and a file that is not its own
+# input cannot run the test that checks it.
+#
+# Wider than src/** because three tests reach outside it: bundle.test.ts runs
+# dist/index.mjs as a process, packaging.test.ts reads action.yml, and
+# release-config.test.ts reads this repository's own release configuration --
+# the two release-please files and the two workflows that must name no mode of
+# their own. The rest is what typecheck, build and install consume. Extend the
+# list when a test starts reading something new -- nothing reports an input
+# left off it.
 #
 # Only safe while `test` is not a required check. A path-filtered workflow
 # reports no check run rather than a skipped one, so a required context naming
@@ -36,6 +42,11 @@ on:
       - scripts/bundle.mjs
       - action.yml
       - conventional-types.json
+      - release-please-config.json
+      - .release-please-manifest.json
+      - .github/workflows/release-please.yml
+      - .github/workflows/projected-releases.yml
+      - .github/workflows/test.yml
       - package.json
       - package-lock.json
       - tsconfig.json
@@ -48,6 +59,11 @@ on:
       - scripts/bundle.mjs
       - action.yml
       - conventional-types.json
+      - release-please-config.json
+      - .release-please-manifest.json
+      - .github/workflows/release-please.yml
+      - .github/workflows/projected-releases.yml
+      - .github/workflows/test.yml
       - package.json
       - package-lock.json
       - tsconfig.json
