@@ -85,8 +85,7 @@ third.
 
 On a pull request from a fork, the token is read-only. The comment is not
 posted; the projection stays in the job summary, and the run logs a warning
-saying so. See [`examples/`](examples/) for a fork-safe pair that posts the
-comment anyway.
+saying so. The fork-safe pair below posts the comment anyway.
 
 ## Plain mode
 
