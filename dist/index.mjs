@@ -37626,36 +37626,38 @@ var require_Alias = __commonJS({
           if (node.anchor === this.source)
             found = node;
         }
+        if (found && ctx) {
+          const { anchors: anchors2, doc: doc2, maxAliasCount } = ctx;
+          let data2 = anchors2.get(found);
+          if (!data2) {
+            toJS.toJS(found, null, ctx);
+            data2 = anchors2.get(found);
+          }
+          if (data2?.res === void 0) {
+            const msg = "This should not happen: Alias anchor was not resolved?";
+            throw new ReferenceError(msg);
+          }
+          if (maxAliasCount >= 0) {
+            data2.count += 1;
+            if (data2.aliasCount === 0)
+              data2.aliasCount = getAliasCount(doc2, found, anchors2);
+            if (data2.count * data2.aliasCount > maxAliasCount) {
+              const msg = "Excessive alias count indicates a resource exhaustion attack";
+              throw new ReferenceError(msg);
+            }
+          }
+        }
         return found;
       }
       toJSON(_arg, ctx) {
         if (!ctx)
           return { source: this.source };
-        const { anchors: anchors2, doc, maxAliasCount } = ctx;
-        const source = this.resolve(doc, ctx);
+        const source = this.resolve(ctx.doc, ctx);
         if (!source) {
           const msg = `Unresolved alias (the anchor must be set before the alias): ${this.source}`;
           throw new ReferenceError(msg);
         }
-        let data2 = anchors2.get(source);
-        if (!data2) {
-          toJS.toJS(source, null, ctx);
-          data2 = anchors2.get(source);
-        }
-        if (data2?.res === void 0) {
-          const msg = "This should not happen: Alias anchor was not resolved?";
-          throw new ReferenceError(msg);
-        }
-        if (maxAliasCount >= 0) {
-          data2.count += 1;
-          if (data2.aliasCount === 0)
-            data2.aliasCount = getAliasCount(doc, source, anchors2);
-          if (data2.count * data2.aliasCount > maxAliasCount) {
-            const msg = "Excessive alias count indicates a resource exhaustion attack";
-            throw new ReferenceError(msg);
-          }
-        }
-        return data2.res;
+        return ctx.anchors.get(source).res;
       }
       toString(ctx, _onComment, _onChompKeep) {
         const src = `*${this.source}`;
@@ -41657,37 +41659,38 @@ var require_resolve_flow_scalar = __commonJS({
       }
       if (badChar)
         onError(0, "BAD_SCALAR_START", `Plain value cannot start with ${badChar}`);
-      return foldLines(source);
+      return unfoldLines(source);
     }
     function singleQuotedValue(source, onError) {
       if (source[source.length - 1] !== "'" || source.length === 1)
         onError(source.length, "MISSING_CHAR", "Missing closing 'quote");
-      return foldLines(source.slice(1, -1)).replace(/''/g, "'");
+      return unfoldLines(source.slice(1, -1)).replace(/''/g, "'");
     }
-    function foldLines(source) {
-      let first, line;
-      try {
-        first = new RegExp("(.*?)(?<![ 	])[ 	]*\r?\n", "sy");
-        line = new RegExp("[ 	]*(.*?)(?:(?<![ 	])[ 	]*)?\r?\n", "sy");
-      } catch {
-        first = /(.*?)[ \t]*\r?\n/sy;
-        line = /[ \t]*(.*?)[ \t]*\r?\n/sy;
-      }
-      let match = first.exec(source);
+    function unfoldLines(source) {
+      const line = /(.*?)\r?\n/sy;
+      let match = line.exec(source);
       if (!match)
         return source;
-      let res = match[1];
+      let trimEnd, trimBoth;
+      try {
+        trimEnd = new RegExp("(?<![ 	])[ 	]+$");
+        trimBoth = new RegExp("^[ 	]+|(?<![ 	])[ 	]+$", "g");
+      } catch {
+        trimEnd = /[ \t]+$/;
+        trimBoth = /^[ \t]+|[ \t]+$/g;
+      }
+      let res = match[1].replace(trimEnd, "");
       let sep = " ";
-      let pos = first.lastIndex;
-      line.lastIndex = pos;
+      let pos = line.lastIndex;
       while (match = line.exec(source)) {
-        if (match[1] === "") {
+        const lm = match[1].replace(trimBoth, "");
+        if (lm === "") {
           if (sep === "\n")
             res += sep;
           else
             sep = "\n";
         } else {
-          res += sep + match[1];
+          res += sep + lm;
           sep = " ";
         }
         pos = line.lastIndex;
@@ -57831,7 +57834,7 @@ var require_commonjs3 = __commonJS({
   "node_modules/brace-expansion/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.EXPANSION_MAX_LENGTH = exports2.EXPANSION_MAX = void 0;
+    exports2.EXPANSION_MAX_REWRITES = exports2.EXPANSION_MAX_DEPTH = exports2.EXPANSION_MAX_LENGTH = exports2.EXPANSION_MAX = void 0;
     exports2.expand = expand;
     var balanced_match_1 = require_commonjs2();
     var escSlash = "\0SLASH" + Math.random() + "\0";
@@ -57851,6 +57854,8 @@ var require_commonjs3 = __commonJS({
     var periodPattern = /\\\./g;
     exports2.EXPANSION_MAX = 1e5;
     exports2.EXPANSION_MAX_LENGTH = 4e6;
+    exports2.EXPANSION_MAX_DEPTH = 1e3;
+    exports2.EXPANSION_MAX_REWRITES = 1e3;
     function numeric(str) {
       return !isNaN(str) ? parseInt(str, 10) : str.charCodeAt(0);
     }
@@ -57860,36 +57865,44 @@ var require_commonjs3 = __commonJS({
     function unescapeBraces(str) {
       return str.replace(escSlashPattern, "\\").replace(escOpenPattern, "{").replace(escClosePattern, "}").replace(escCommaPattern, ",").replace(escPeriodPattern, ".");
     }
+    function pushAll(target, items) {
+      for (let i = 0; i < items.length; i++) {
+        target.push(items[i]);
+      }
+    }
     function parseCommaParts(str) {
-      if (!str) {
-        return [""];
-      }
       const parts = [];
-      const m = (0, balanced_match_1.balanced)("{", "}", str);
-      if (!m) {
-        return str.split(",");
+      let carry = "";
+      for (; ; ) {
+        const m = (0, balanced_match_1.balanced)("{", "}", str);
+        if (!m) {
+          const tail = str.split(",");
+          tail[0] = carry + tail[0];
+          pushAll(parts, tail);
+          return parts;
+        }
+        const { pre, body, post: post2 } = m;
+        const p = pre.split(",");
+        p[0] = carry + p[0];
+        p[p.length - 1] += "{" + body + "}";
+        if (!post2.length) {
+          pushAll(parts, p);
+          return parts;
+        }
+        carry = p.pop();
+        pushAll(parts, p);
+        str = post2;
       }
-      const { pre, body, post: post2 } = m;
-      const p = pre.split(",");
-      p[p.length - 1] += "{" + body + "}";
-      const postParts = parseCommaParts(post2);
-      if (post2.length) {
-        ;
-        p[p.length - 1] += postParts.shift();
-        p.push.apply(p, postParts);
-      }
-      parts.push.apply(parts, p);
-      return parts;
     }
     function expand(str, options = {}) {
       if (!str) {
         return [];
       }
-      const { max = exports2.EXPANSION_MAX, maxLength = exports2.EXPANSION_MAX_LENGTH } = options;
+      const { max = exports2.EXPANSION_MAX, maxLength = exports2.EXPANSION_MAX_LENGTH, maxDepth = exports2.EXPANSION_MAX_DEPTH, maxRewrites = exports2.EXPANSION_MAX_REWRITES } = options;
       if (str.slice(0, 2) === "{}") {
         str = "\\{\\}" + str.slice(2);
       }
-      return expand_(escapeBraces(str), max, maxLength, true).map(unescapeBraces);
+      return expand_(escapeBraces(str), max, maxLength, maxDepth, 0, maxRewrites, true).map(unescapeBraces);
     }
     function embrace(str) {
       return "{" + str + "}";
@@ -57967,8 +57980,12 @@ var require_commonjs3 = __commonJS({
       }
       return N;
     }
-    function expand_(str, max, maxLength, isTop) {
+    function expand_(str, max, maxLength, maxDepth, depth, maxRewrites, isTop) {
+      if (depth > maxDepth) {
+        return [str];
+      }
       let acc = [""];
+      let rewrites = 0;
       let dropEmpties = false;
       let firstGroup = true;
       for (; ; ) {
@@ -57990,7 +58007,8 @@ var require_commonjs3 = __commonJS({
         const isSequence = isNumericSequence || isAlphaSequence;
         const isOptions = m.body.indexOf(",") >= 0;
         if (!isSequence && !isOptions) {
-          if (m.post.match(/,(?!,).*\}/)) {
+          if (rewrites < maxRewrites && m.post.match(/,(?!,).*\}/)) {
+            rewrites++;
             str = m.pre + "{" + m.body + escClose + m.post;
             isTop = true;
             continue;
@@ -58007,7 +58025,7 @@ var require_commonjs3 = __commonJS({
         } else {
           let n = parseCommaParts(m.body);
           if (n.length === 1 && n[0] !== void 0) {
-            n = expand_(n[0], max, maxLength, false).map(embrace);
+            n = expand_(n[0], max, maxLength, maxDepth, depth + 1, maxRewrites, false).map(embrace);
             if (n.length === 1) {
               acc = combine(acc, pre + n[0], [""], max, maxLength, dropEmpties && !m.post.length);
               if (!m.post.length)
@@ -58025,7 +58043,7 @@ var require_commonjs3 = __commonJS({
           values = [];
           let valuesLength = 0;
           outer: for (let j = 0; j < n.length; j++) {
-            const expanded = expand_(n[j], max, maxLength, false);
+            const expanded = expand_(n[j], max, maxLength, maxDepth, depth + 1, maxRewrites, false);
             for (let k = 0; k < expanded.length; k++) {
               const v = expanded[k];
               if (dropsEmpties && !v)
