@@ -80,8 +80,9 @@ regardless of what their title says.
 `fetch-depth: 0` buys three things: the changed-file diff runs from the merge
 base, each commit's file list is read locally instead of one API request
 per commit, and a merge or rebase projection can read the branch's commits at
-all. A shallow clone falls back to the API for the first two and drops the
-third.
+all. A shallow clone falls back to the API for all three. The third fallback
+is capped at 50 commits, and a longer branch is left unmodelled, which the
+comment says.
 
 On a pull request from a fork, the token is read-only. The comment is not
 posted; the projection stays in the job summary, and the run logs a warning
@@ -127,7 +128,7 @@ squash-merge wherever squash is allowed. To project a different merge:
 | `body` | The rendered comment body. |
 | `releases` | The projected releases as JSON, one `{component, version, notes}` per tag merging would cut. |
 | `releases-count` | How many releases merging would cut. `0` is the common case. |
-| `malformed-title` | `true` when the projection was withheld because the title is not a Conventional Commit the changelog recognizes. |
+| `malformed-title` | `true` when the projection was withheld because the title is not a Conventional Commit the changelog recognizes. Always `false` under `merge-method: merge` or `rebase`, where the title is not what release-please parses. |
 | `recognized-types` | The commit types this run resolved, comma-separated. Pin a PR-title gate to this instead of keeping a second copy of the list. |
 
 A later step reads them through `steps.<id>.outputs`:
