@@ -52,12 +52,16 @@ name: Projected releases
 on:
   pull_request:
     types: [opened, reopened, synchronize, edited]
+concurrency:
+  group: projected-releases-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: write
 jobs:
   preview:
     runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -67,8 +71,22 @@ jobs:
 
 That is all a repository with `release-please-config.json` and
 `.release-please-manifest.json` needs. Keep `edited` in the trigger list, so
-a title fixed after review re-renders the comment, and keep `fetch-depth: 0`,
-which the merge and rebase projections need.
+a title fixed after review re-renders the comment. The `concurrency:` block
+matters because a title edit and a push often land close together, and it
+keeps the last-written comment describing the current head. The `if:` skips
+release-please's own release pull requests, which always release something
+regardless of what their title says.
+
+`fetch-depth: 0` buys three things: the changed-file diff runs from the merge
+base, each commit's file list is read locally instead of one API request
+per commit, and a merge or rebase projection can read the branch's commits at
+all. A shallow clone falls back to the API for the first two and drops the
+third.
+
+On a pull request from a fork, the token is read-only. The comment is not
+posted; the projection stays in the job summary, and the run logs a warning
+saying so. See [`examples/`](examples/) for a fork-safe pair that posts the
+comment anyway.
 
 ## Plain mode
 
@@ -81,8 +99,9 @@ those files, pass this action the same values:
           release-type: node
 ```
 
-`versioning-strategy` and `release-as` work the same way. The comment warns
-when these disagree with your release workflow.
+`versioning-strategy`, `release-as`, `package-path`, and
+`include-component-in-tag` work the same way. The comment warns when these
+disagree with your release workflow.
 
 ## Merge method
 
@@ -101,8 +120,33 @@ squash-merge wherever squash is allowed. To project a different merge:
 | rebase | the branch's commits |
 | merge | the branch's commits, plus the merge commit |
 
+## Outputs
+
+| Output | What it holds |
+| --- | --- |
+| `comment-file` | The file the comment body was written to. |
+| `body` | The rendered comment body. |
+| `releases` | The projected releases as JSON, one `{component, version, notes}` per tag merging would cut. |
+| `releases-count` | How many releases merging would cut. `0` is the common case. |
+| `malformed-title` | `true` when the projection was withheld because the title is not a Conventional Commit the changelog recognizes. |
+| `recognized-types` | The commit types this run resolved, comma-separated. Pin a PR-title gate to this instead of keeping a second copy of the list. |
+
+A later step reads them through `steps.<id>.outputs`:
+
+```yaml
+      - id: projected
+        uses: jmcvetta/projected-releases-action@v0
+      - if: steps.projected.outputs.malformed-title == 'true'
+        run: exit 1
+```
+
+This action also writes the projection to the job summary; set
+`step-summary: false` to turn that off.
+
 ## More
 
 - [`examples/`](examples/) has a fuller workflow, and a fork-safe pair for
   repositories that take pull requests from forks.
 - [`action.yml`](action.yml) documents every input and output.
+- Running on GitHub Enterprise Server: `api-url` and `graphql-url` default to
+  the running server's and can be set for a GHES instance.
