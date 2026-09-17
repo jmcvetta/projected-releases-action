@@ -14,10 +14,11 @@
 # a release pull request would still open, just with the wrong number on it.
 resource "github_repository" "projected_releases" {
   name = "projected-releases-action"
-  # The one line most readers ever see, so it says what the action does rather
-  # than what it is compatible with. Manifest and plain mode both work; that
-  # belongs in the README, not in the sentence under the repository name.
-  description = "Comments on a pull request with the versions and tags release-please will release when it merges."
+  # The one line most readers ever see, so it says what the thing is and what
+  # it does, and nothing about what it is compatible with. Manifest and plain
+  # mode both work; that belongs in the README, not in the sentence under the
+  # repository name.
+  description = "GitHub Action that previews the release-please versions a pull request will cut."
   visibility  = "public"
 
   # Topics. GitHub's repository search and the sidebar of every related
