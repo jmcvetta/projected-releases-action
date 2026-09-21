@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  preview:
+  projection:
     runs-on: ubuntu-latest
     # Not on release-please's own release pull requests. Merging one cuts its
     # tag from the changelog and version already written into the branch,

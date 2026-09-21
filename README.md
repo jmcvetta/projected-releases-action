@@ -59,7 +59,7 @@ permissions:
   contents: read
   pull-requests: write
 jobs:
-  preview:
+  projection:
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
     steps:
