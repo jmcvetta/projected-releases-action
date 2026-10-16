@@ -254,39 +254,16 @@ forever, blocking every pull request, fixable only by someone applying the
 stack by hand. Nothing tests that pair -- check it by hand when renaming either
 side.
 
-**The cost lands on the release pull request, and it is a click.**
-`release-please.yml` falls back to the default token while the App variables
-are unset, so the release pull request is opened by `github-actions[bot]`.
-GitHub creates the workflow runs for a bot's pull request and holds them in
-`action_required` until someone with write access clicks **Approve workflows
-to run** -- the "N workflows awaiting approval" box on the pull request.
+**The release pull request's checks now run without an approval click.**
+`release-please.yml` uses the shared release App when `RELEASE_BOT_APP_ID` is
+set; the App's distinct identity keeps GitHub from holding its workflow runs.
+The fallback to `github-actions[bot]` remains when the App ID variable is
+unset, as it is for forks; those pull requests may still wait for approval.
 
-Measured on #79: four check runs, `validate-title` among them, and every one
-of its workflow runs a second attempt whose triggering actor is a human
-rather than the bot that opened the pull request. A run still held is visible
-as its own attempt 1 with `conclusion: action_required` -- runs 34121791275
-and 34126114688, on the 0.6.1 release branch.
-
-https://github.blog/changelog/2026-06-11-bot-created-pull-requests-can-run-workflows-if-approved/
-
-**The hold follows whoever pushed the head, and that is the third path.** A
-human pushing to the release branch -- the merge box's *Update branch* button
--- makes the runs a human's, so they start unheld. #42's head is `Merge
-branch 'master' into release-please--...`; its four check runs are attempt 1
-with `jmcvetta` as the actor, and it merged 54 seconds after `validate-title`
-went green, taking no bypass. **An earlier note here cited #42 as having zero
-check runs. It has four**, and opened on 2026-09-04 it can be evidence for
-nothing before the changelog above: every release pull request this
-repository has ever had postdates that date.
-
-So `validate-title` does report on the one pull request whose merge cuts a
-tag, one click late. The admin bypass the ruleset declares (`bypass_mode =
-"pull_request"`) is the hatch for the day one is needed rather than a step on
-every release. Configuring `RELEASE_BOT_APP_ID` + `RELEASE_BOT_PRIVATE_KEY`
-removes the click: an App is a distinct identity, so GitHub does not hold the
-runs on its pull requests -- measured on `jmcvetta/claude-daily-driver`,
-whose release pull requests run as `daily-driver-release-bot[bot]` on the
-first attempt, unapproved.
+`validate-title` reports on the release pull request on its first run when the
+App is configured. The admin bypass the ruleset declares (`bypass_mode =
+"pull_request"`) remains the hatch for the day one is needed, rather than a
+step on every release.
 
 **`test` stays unrequired, and the reason is `test.yml`'s `paths:` filter
 rather than anything about the release pull request.** A path-filtered
@@ -295,14 +272,16 @@ workflow reports no check run at all rather than a skipped one, so a required
 pending for ever -- a documentation change like this one included. Requiring
 it means dropping the filter in the same commit, and nothing enforces that.
 
-## The release job needs permission to open a pull request
+## The fallback release job needs permission to open a pull request
 
-`release-please.yml` falls back to `github.token` when the App variables are
-unset, and that fallback only works while Actions are allowed to create pull
-requests: `can_approve_pull_request_reviews` in `infra/github/main.tf`, which
-is **Settings -> Actions -> General -> Allow GitHub Actions to create and
-approve pull requests** in the web UI. With it off, release-please does all its
-work, pushes the release branch, and then fails on the last call:
+`release-please.yml` uses the configured App when its variables are set and
+falls back to `github.token` when `RELEASE_BOT_APP_ID` is unset. That fallback
+only works while Actions are allowed to create pull requests:
+`can_approve_pull_request_reviews` in `infra/github/main.tf`, which is
+**Settings -> Actions -> General -> Allow GitHub Actions to create and approve
+pull requests** in the web UI. With the App ID unset and this setting off,
+release-please does all its work, pushes the release branch, and then fails on
+the last call:
 
 ```
 release-please failed: GitHub Actions is not permitted to create or approve
@@ -310,11 +289,8 @@ pull requests.
 ```
 
 The branch it pushed stays behind, so the failure looks like a partial
-success. Configuring the App (`RELEASE_BOT_APP_ID` + `RELEASE_BOT_PRIVATE_KEY`)
-sidesteps the setting entirely and is worth it for a second reason: a release
-pull request opened by `github-actions[bot]` arrives with its workflow runs
-held for approval, so the one pull request whose merge cuts a permanent tag
-reports no check until a human clicks.
+success. The App path also avoids the workflow-approval hold on the release
+pull request; the fallback path retains that hold for `github-actions[bot]`.
 
 ## The repository's own settings live in `infra/github`
 
@@ -328,9 +304,9 @@ Two things it is worth knowing before editing that stack, both written up in
 `infra/github/README.md`: the state file is **committed**, which constrains
 what may be added to it (this repository is public, so state is world-readable
 and nothing credential-bearing belongs in it); and the ruleset requires
-`validate-title` and nothing else, because the release pull request is opened
-with the default token and so runs no check until a human approves it -- see
-the section above for what that costs and what removes it.
+`validate-title` and nothing else. The App opens release pull requests, so
+their checks run on the first attempt; the fallback to the default token still
+requires approval -- see the section above.
 
 **An apply is only half done until the state file is committed.** The apply
 happens on someone's laptop, and the state it rewrites is a file in this

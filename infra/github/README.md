@@ -102,12 +102,12 @@ it does hold, in full:
 | `github_repository_ruleset` | the branch-protection rules | yes |
 | `github_repository_vulnerability_alerts` | a boolean | no |
 | `github_repository_dependabot_security_updates` | a boolean | no |
+| `github_actions_variable.release_bot_app_id` | the non-secret App ID | no |
 | `github_workflow_repository_permissions` | two Actions settings | no |
 
-The last three are settings the API will not hand an anonymous reader, so
-committing the state publishes them. That is a disclosure and not an accident:
-they say that Dependabot is on and that a workflow token is read-only unless a
-job asks for more. Neither is a thing anyone can use.
+The last four rows describe settings the API will not hand an anonymous reader,
+so committing the state publishes them: vulnerability alerts and Dependabot
+updates are enabled, workflow permissions are set, and the App ID is recorded.
 
 Against that, the alternatives cost more than they return. An S3 backend means
 an AWS account this repository has no other reason to touch; a hosted backend
@@ -143,31 +143,23 @@ exception for the one resource.
   hand-applying this stack. Requiring it means dropping the filter in the
   same commit, and nothing enforces that.
 
-  What the release pull request costs is a separate thing, and it is a click
-  rather than an absence. The release job falls back to the default token, so
-  that pull request is opened by `github-actions[bot]`, and GitHub holds a
-  bot's workflow runs in `action_required` until someone with write access
-  clicks **Approve workflows to run**. `validate-title` therefore reports
-  there one click late — #79 has four check runs, each a second attempt a
-  human triggered, and it merged on a green `validate-title` without the
-  bypass. The release bot App below removes the click.
+  Once installed and configured, the release App opens its pull request with a
+  distinct identity, so GitHub runs its checks without an approval click.
 
   `preview` stays out of it whatever happens. That job is advisory by design
   and skips itself on release-please's own branches, so as a required check it
   would never report there either.
 
-- **`RELEASE_BOT_APP_ID` and `RELEASE_BOT_PRIVATE_KEY`.** `release-please.yml`
-  switches to a GitHub App when the variable is set, and the point of doing so
-  is that an App is a distinct identity, so GitHub does not hold the workflow
-  runs on its pull requests for approval — measured on
-  `jmcvetta/claude-daily-driver`, whose release pull requests run at the first
-  attempt with the App as the triggering actor. It removes an approval click,
-  not an event suppression. The private
-  key cannot be managed here under the rule above, and the variable is
-  deliberately not managed either: setting it while the key is missing or the
-  App is not installed makes the release job fail on its first step, which is
-  worse than the fallback it replaces. Both go in together, by hand, alongside
-  installing the App on this repository.
+- **The release App.** `RELEASE_BOT_APP_ID` is managed here as the non-secret
+  ID `4861873`. Install that App on this repository, then set its private key
+  as the hand-managed `RELEASE_BOT_PRIVATE_KEY` secret, which never enters
+  configuration or state. Do both before applying: setting the variable
+  without the key makes the release job fail on its first step. Then run
+  `tofu plan` and confirm it proposes only creation of
+  `github_actions_variable.release_bot_app_id`; apply and commit the updated
+  state. If the variable already exists live, import it first with
+  `tofu import github_actions_variable.release_bot_app_id
+  projected-releases-action:RELEASE_BOT_APP_ID`.
 
 - **Labels.** Untouched GitHub defaults that nothing in the workflow reads.
   Managing them would encode a default nobody chose.

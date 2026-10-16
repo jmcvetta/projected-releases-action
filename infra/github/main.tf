@@ -115,6 +115,15 @@ resource "github_workflow_repository_permissions" "projected_releases" {
   can_approve_pull_request_reviews = true
 }
 
+# The App ID is public configuration, so it is safe in the committed state.
+# The private key is set by hand as a GitHub Actions secret and never enters
+# this configuration or state.
+resource "github_actions_variable" "release_bot_app_id" {
+  repository    = github_repository.projected_releases.name
+  variable_name = "RELEASE_BOT_APP_ID"
+  value         = "4861873"
+}
+
 # Branch protection for master, expressed as a repository ruleset rather than
 # classic branch protection. The distinction matters: classic protection cannot
 # express allowed_merge_methods, which is the squash-only invariant above.
@@ -177,17 +186,9 @@ resource "github_repository_ruleset" "master" {
     # only by someone applying this stack by hand. src/pr-title-check.test.ts
     # pins the two together.
     #
-    # KNOWN COST, until the release job authenticates as a GitHub App: this
-    # check reports on the release pull request one click late.
-    # release-please.yml falls back to the default token while
-    # RELEASE_BOT_APP_ID and RELEASE_BOT_PRIVATE_KEY are unset, so that pull
-    # request is opened by github-actions[bot], and GitHub holds a bot's
-    # workflow runs in action_required until someone with write access clicks
-    # "Approve workflows to run" -- measured on #79, whose four check runs are
-    # each a second attempt a human triggered. It merged on a green
-    # validate-title and took no bypass, so the bypass declared above is the
-    # hatch for the day one is needed rather than a step on every release.
-    # Setting up the App removes the click and is the real fix.
+    # Once its private key is installed, the release App runs this check on
+    # its pull request without an approval click. The admin bypass declared
+    # above remains the hatch for the day one is needed, not a step on releases.
     required_status_checks {
       strict_required_status_checks_policy = false
       do_not_enforce_on_create             = false
