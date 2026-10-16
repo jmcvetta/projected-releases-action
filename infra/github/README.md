@@ -154,12 +154,14 @@ exception for the one resource.
   ID `4861873`. Install that App on this repository, then set its private key
   as the hand-managed `RELEASE_BOT_PRIVATE_KEY` secret, which never enters
   configuration or state. Do both before applying: setting the variable
-  without the key makes the release job fail on its first step. Then run
-  `tofu plan` and confirm it proposes only creation of
-  `github_actions_variable.release_bot_app_id`; apply and commit the updated
-  state. If the variable already exists live, import it first with
+  without the key makes the release job fail on its first step. If the
+  variable already exists live, import it before planning with
   `tofu import github_actions_variable.release_bot_app_id
-  projected-releases-action:RELEASE_BOT_APP_ID`.
+  projected-releases-action:RELEASE_BOT_APP_ID`. Then run `tofu plan`: an
+  absent variable should show only one creation; an imported variable whose
+  live value is `4861873` should show no changes. Review any proposed value
+  update and apply only the expected change, with no unrelated changes; commit
+  the resulting state.
 
 - **Labels.** Untouched GitHub defaults that nothing in the workflow reads.
   Managing them would encode a default nobody chose.
