@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/jmcvetta/projected-releases-action/compare/v0.7.1...v0.8.0) (2026-10-16)
+
+
+### Features
+
+* **infra:** configure shared release App 4861873 ([#102](https://github.com/jmcvetta/projected-releases-action/issues/102)) ([ad750b5](https://github.com/jmcvetta/projected-releases-action/commit/ad750b5aa45e5e9cc2d8be51fa72702e1b0ee6f4))
+
 ## [0.7.1](https://github.com/jmcvetta/release-please-projected-releases-action/compare/v0.7.0...v0.7.1) (2026-09-09)
 
 
