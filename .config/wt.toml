@@ -1,0 +1,3 @@
+# Shell integration keeps the caller in master's worktree after sync.
+[aliases]
+sync = "wt switch master --execute make -- __git_sync_run"
