@@ -1,0 +1,19 @@
+# Checkov policy scan of the OpenTofu stack. CI runs it as
+# `checkov --config-file .checkov.yaml` whenever the infrastructure filter in
+# .github/workflows/ci.yml matches.
+directory:
+  - infra
+framework:
+  - terraform
+download-external-modules: false
+evaluate-variables: true
+quiet: true
+compact: true
+skip-check:
+  # Module sources must be pinned to a commit hash. The stack declares no
+  # modules, so there is nothing to pin.
+  - CKV_TF_1
+  # Module sources must use a version tag. The stack declares no modules.
+  - CKV_TF_2
+  # Repositories must be private. This one is a public FOSS action by design.
+  - CKV_GIT_1
