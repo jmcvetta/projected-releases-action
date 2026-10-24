@@ -310,7 +310,7 @@ describe("what the comparison declines to do", () => {
   // which is the behaviour that existed before any of this.
   it("says nothing when no workflow calls release-please-action", () => {
     const result = compare({
-      "test.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v7\n",
+      "unrelated.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v7\n",
     });
     expect(result).toEqual({ decided: false, notes: [] });
   });

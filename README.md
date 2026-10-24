@@ -1,6 +1,6 @@
 # Projected Releases for release-please
 
-[![Test](https://github.com/jmcvetta/projected-releases-action/actions/workflows/test.yml/badge.svg)](https://github.com/jmcvetta/projected-releases-action/actions/workflows/test.yml)
+[![Checks](https://github.com/jmcvetta/projected-releases-action/actions/workflows/ci.yml/badge.svg)](https://github.com/jmcvetta/projected-releases-action/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/jmcvetta/projected-releases-action)](https://github.com/jmcvetta/projected-releases-action/releases)
 [![License](https://img.shields.io/github/license/jmcvetta/projected-releases-action)](LICENSE)
 
@@ -45,21 +45,22 @@ releases, it says so.
 
 ## Quick start
 
-Copy to `.github/workflows/projected-releases.yml`:
+Copy to `.github/workflows/release-projection.yml`:
 
 ```yaml
-name: Projected releases
+name: Release Projection
 on:
   pull_request:
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
 concurrency:
-  group: projected-releases-${{ github.event.pull_request.number }}
+  group: release-projection-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: write
 jobs:
-  projection:
+  release-projection:
+    name: Release Projection
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
     steps:

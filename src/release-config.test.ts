@@ -1,15 +1,15 @@
 /**
- * This repository's own release configuration, which two files and two
- * workflows have to agree about.
+ * This repository's own release configuration, which its release workflow and
+ * dogfood step have to agree about.
  *
  * release-please is configured here in manifest mode, and the switch that
  * selects it is an *absence*: `release-type:` on release-please-action makes
  * the action build its configuration from its inputs and read neither
  * release-please-config.json nor .release-please-manifest.json. So the input
  * left off the release workflow is load-bearing, and so is the one left off
- * the dogfood step in projected-releases.yml -- which projects the release the
- * other one will cut, and would project a different configuration if it named
- * a mode of its own.
+ * the dogfood step in release-projection.yml -- which projects the release
+ * the other one will cut, and would project a different configuration if it
+ * named a mode of its own.
  *
  * Every way this can go wrong is quiet. A `release-type:` added to either
  * workflow releases and projects from a configuration nobody wrote down; a
@@ -18,10 +18,8 @@
  * and so loses the release boundary; and a manifest version that stops
  * matching package.json is a base version somebody edited by hand.
  *
- * `test.yml`'s own input list is here for the same reason and not because it
- * is release configuration: it decides whether this file runs at all, and its
- * two halves are written out twice because GitHub Actions does not read YAML
- * anchors.
+ * `ci.yml`'s test filter is here for the same reason and not because it is
+ * release configuration: it decides whether this file runs at all.
  */
 
 import { describe, expect, it } from "vitest";
@@ -37,11 +35,8 @@ interface Step {
   with?: Record<string, unknown>;
 }
 
-/** Workflow is as much of a workflow file as this file reads. `steps` is
- * optional because a job calling a reusable workflow has none, and a missing
- * one read as a step is a TypeError where an assertion should be. */
+/** Workflow is as much of a workflow file as this test reads. */
 interface Workflow {
-  on?: Record<string, { paths?: string[] }>;
   jobs: Record<string, { steps?: Step[] }>;
 }
 
@@ -97,32 +92,27 @@ describe(".release-please-manifest.json", () => {
   });
 });
 
-describe("test.yml's input list", () => {
-  it("says the same thing under both events", () => {
-    // Written out twice, because GitHub Actions does not read YAML anchors. A
-    // drift between the halves is invisible on a pull request and surfaces as
-    // a merge to master that skipped the leg the pull request ran.
-    const events = workflow("test.yml").on ?? {};
-    expect(Object.keys(events).sort()).toEqual(["pull_request", "push"]);
-    expect(events["pull_request"]?.paths).toEqual(events["push"]?.paths);
-    // Not vacuous: two undefined lists would compare equal.
-    expect(events["push"]?.paths?.length).toBeGreaterThan(10);
-  });
-
+describe("ci.yml's test filter", () => {
   it("names every file this suite reads outside src/", () => {
-    // The allow-list does not fail safe: an input left off it is simply a file
-    // this workflow stops running on. These are the ones read by a test rather
-    // than by a build.
-    const paths = workflow("test.yml").on?.["push"]?.paths ?? [];
+    // An input left off this allow-list silently stops running the test that
+    // reads it. These are the test's non-src inputs, including this contract.
+    const pathFilter = steps(workflow("ci.yml")).find(
+      (step) => step.uses === "dorny/paths-filter@v4",
+    );
+    expect(pathFilter).toBeDefined();
+    const filters = parse(pathFilter?.with?.filters as string) as Record<
+      string,
+      string[]
+    >;
     for (const name of [
       "action.yml",
       "release-please-config.json",
       ".release-please-manifest.json",
       ".github/workflows/release-please.yml",
-      ".github/workflows/projected-releases.yml",
-      ".github/workflows/test.yml",
+      ".github/workflows/release-projection.yml",
+      ".github/workflows/ci.yml",
     ]) {
-      expect(paths, name).toContain(name);
+      expect(filters.test, name).toContain(name);
     }
   });
 });
@@ -139,7 +129,7 @@ describe("the workflows that name the release mode", () => {
   });
 
   it("projects without one either", () => {
-    const dogfood = steps(workflow("projected-releases.yml")).filter(
+    const dogfood = steps(workflow("release-projection.yml")).filter(
       (step) => step.uses === "./",
     );
     expect(dogfood).toHaveLength(1);

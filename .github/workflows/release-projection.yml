@@ -17,40 +17,54 @@
 # will read (see release-please.yml). An input naming the mode here would be a
 # second copy of that configuration, and a projection is only about the release
 # the other one will cut.
-name: Projected Releases
+name: Release Projection
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
-  group: projected-releases-${{ github.event.pull_request.number }}
+  group: release-projection-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  projection:
+  release-projection:
+    name: Release Projection
     runs-on: ubuntu-latest
-    # Not on release-please's own release pull requests. Merging one cuts its
-    # tag from the changelog and version already written into the branch,
-    # never from the type in the title, so the model this action applies does
-    # not describe it.
-    if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
-      # Full history, so the changed-file diff runs from the merge base rather
-      # than falling back to the API's capped file list, and so the commit
-      # file lists release-please needs are read locally.
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            feature
+            fix
+            perf
+            revert
+            docs
+            style
+            chore
+            refactor
+            test
+            build
+            ci
+          requireScope: false
+
+      # Continue after a title failure so the projection remains visible. Skip
+      # only release-please's own release pull requests.
       - uses: actions/checkout@v7
+        if: ${{ !cancelled() && !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
         with:
           fetch-depth: 0
+
       # The bundle is committed, so there is nothing to install: `uses: ./`
       # runs dist/index.mjs straight out of the checkout. CI's staleness check
-      # in test.yml is what keeps that file equal to src/.
+      # is what keeps that file equal to src/.
       #
       # No `with:` at all. `release-type` here would switch this projection
       # to plain mode and leave the two files unread, which is release-please
@@ -58,3 +72,4 @@ jobs:
       # such input, so the projection would describe a configuration that will
       # never run. src/release-config.test.ts is what keeps the pair equal.
       - uses: ./
+        if: ${{ !cancelled() && !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
