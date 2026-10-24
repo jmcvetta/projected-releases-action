@@ -57,6 +57,17 @@ jobs:
           steps.filter.outputs.infra == 'true' ||
           steps.filter.outputs.git_sync == 'true')
 
+      # Workflow syntax is part of the test-filter inputs, so lint it whenever
+      # a test input changes.
+      - name: Lint workflows
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.checkout.outcome == 'success'
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
       - uses: actions/setup-node@v7
         id: setup-node
         if: >-

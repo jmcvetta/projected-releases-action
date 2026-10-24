@@ -324,7 +324,8 @@ read**, rather than a list of directories to ignore: an ignore-list states
 what a leg is bored by, an allow-list states what it consumes. It is longer
 than `src/**` because two tests reach outside it -- `bundle.test.ts` runs
 `dist/index.mjs` as a process and `packaging.test.ts` reads `action.yml` --
-plus what typecheck, build and install consume.
+plus what typecheck, build, install and actionlint consume. It names every
+workflow file actionlint scans.
 
 The cost of an allow-list is that it does not fail safe. **Nothing reports an
 input left off the list**; it is simply a file this workflow stops running on.
