@@ -226,7 +226,7 @@ trailer below it, before confirming the merge.
 
 ## The title's type is a required check
 
-`.github/workflows/pr-title-check.yml` runs
+`.github/workflows/release-projection.yml` runs
 `amannn/action-semantic-pull-request` over the title, and
 its `types:` list is the one `conventional-types.json` holds. Nothing keeps
 the two equal; keep them equal by hand. That action's own default is
@@ -244,33 +244,19 @@ compares `commit.type === 'feat'` literally and bumps a **patch**. A feature
 shipped as a patch release, no error anywhere. `wip:` matches nothing and
 simply releases nothing.
 
-**`validate-title` is required by the `master` ruleset**, which is the whole
-point: advisory, the only place that failure shows is a red check nobody is
-obliged to read. The required context is a check-run **name** -- for an
-Actions job, its `name:` when it declares one and its job id otherwise -- so
-`infra/github/main.tf` and the workflow hold one pair in two languages, and
-renaming either alone leaves a required check nothing ever reports: pending
-forever, blocking every pull request, fixable only by someone applying the
-stack by hand. Nothing tests that pair -- check it by hand when renaming either
-side.
+**The master ruleset requires `Checks` and `Release Projection`.** They are
+check-run names: each workflow job sets its `name:` to the required context.
+`Checks` contains the test, infrastructure and git-sync checks; its
+`dorny/paths-filter` step selects which steps run. The workflow has no
+`paths:` filter, so every pull request reports `Checks`, including one that
+matches none of the filters. A failing selected check therefore blocks merge
+without leaving unrelated pull requests pending.
 
-**The release pull request's checks now run without an approval click.**
-`release-please.yml` uses the shared release App when `RELEASE_BOT_APP_ID` is
-set; the App's distinct identity keeps GitHub from holding its workflow runs.
-The fallback to `github-actions[bot]` remains when the App ID variable is
-unset, as it is for forks; those pull requests may still wait for approval.
-
-`validate-title` reports on the release pull request on its first run when the
-App is configured. The admin bypass the ruleset declares (`bypass_mode =
-"pull_request"`) remains the hatch for the day one is needed, rather than a
-step on every release.
-
-**`test` stays unrequired, and the reason is `test.yml`'s `paths:` filter
-rather than anything about the release pull request.** A path-filtered
-workflow reports no check run at all rather than a skipped one, so a required
-`test` would leave every pull request matching nothing in its allow-list
-pending for ever -- a documentation change like this one included. Requiring
-it means dropping the filter in the same commit, and nothing enforces that.
+`Release Projection` runs the title gate and the projection in one job. The
+title gate runs on release pull requests too; only checkout and projection
+steps skip those branches. The admin bypass the ruleset declares
+(`bypass_mode = "pull_request"`) remains the hatch for the day one is needed,
+not a step on every release.
 
 ## The fallback release job needs permission to open a pull request
 
@@ -304,9 +290,10 @@ Two things it is worth knowing before editing that stack, both written up in
 `infra/github/README.md`: the state file is **committed**, which constrains
 what may be added to it (this repository is public, so state is world-readable
 and nothing credential-bearing belongs in it); and the ruleset requires
-`validate-title` and nothing else. The App opens release pull requests, so
-their checks run on the first attempt; the fallback to the default token still
-requires approval -- see the section above.
+`Checks` and `Release Projection`, the names of the two workflow jobs. The App
+opens release pull requests, so both contexts run on the first attempt; the
+fallback to the default token still requires approval -- see the section
+above.
 
 **An apply is only half done until the state file is committed.** The apply
 happens on someone's laptop, and the state it rewrites is a file in this
@@ -319,41 +306,30 @@ breaks the one thing a plan is read for.
 runs it. It is not part of `npm run check`, which must not start requiring
 OpenTofu on a laptop.
 
-**It runs from its own workflow, `infra.yml`, and the reason is the `paths:`
-filter.** Nothing outside `infra/` can change what `tofu validate` says, and
-the leg is not free: setup-opentofu downloads a toolchain and `tofu init`
-fetches the provider from the registry, on every push, for a directory that
-changes a few times a year. GitHub evaluates `paths:` before allocating a
-runner, so an unaffected change starts nothing -- which a step-level `if:` or a
-gated job would not achieve, both having already paid for the runner.
+**The checks run from `ci.yml`, and path filters select steps rather than
+workflows.** `dorny/paths-filter` computes separate test, infrastructure and
+git-sync selections. The infrastructure filter names `infra/**` and
+`package.json`, because `tofu validate` reads the former and the package
+manifest holds the `check:infra` command line. Setup-opentofu and the provider
+fetch run only when that filter matches.
 
-The filter names `package.json` and the workflow file alongside `infra/**`,
-because a filter is the leg's real input set rather than its directory:
-`package.json` holds the `check:infra` command line.
+The top-level workflow has no `paths:` filter. A path-filtered workflow reports
+no check run rather than a skipped one, and a required context that never
+reports leaves every pull request pending. Here, each required context always
+reports; only the checks inside `Checks` are conditional. A docs-only pull
+request therefore gets a successful `Checks` result with its steps skipped.
 
-This is available only because `infra` is not a required check. A
-path-filtered workflow does not report a *skipped* check, it reports nothing at
-all, and a required check that never reports leaves every pull request pending
-forever. The ruleset does now require `validate-title` (see above), and that
-resolved this the second way the sentence used to offer: the filter stayed on
-and `infra` stayed out of the required set. Requiring it later means dropping
-the filter in the same commit. Nothing enforces that.
-
-**`test.yml` is filtered too**, as a `paths:` allow-list of the files these
-tests read rather than a list of directories to ignore: an ignore-list states
+**The `test` filter in `ci.yml` is an allow-list of the files these tests
+read**, rather than a list of directories to ignore: an ignore-list states
 what a leg is bored by, an allow-list states what it consumes. It is longer
 than `src/**` because two tests reach outside it -- `bundle.test.ts` runs
 `dist/index.mjs` as a process and `packaging.test.ts` reads `action.yml` --
-plus what typecheck, build and install consume.
+plus what typecheck, build, install and actionlint consume. It names every
+workflow file actionlint scans.
 
 The cost of an allow-list is that it does not fail safe. **Nothing reports an
 input left off the list**; it is simply a file this workflow stops running on.
 Extend the list when a test starts reading something new.
-
-Both filters are written once per event, because GitHub Actions does not read
-YAML anchors. Keep the halves the same: a drift between them is invisible on a
-pull request and surfaces later as a merge to `master` that skipped the leg the
-pull request ran.
 
 
 ## A variant entry point calls the original; it never copies it
@@ -380,7 +356,7 @@ committed bundle equals the source, which packaging.test.ts and CI's staleness
 check already prove.
 
 The pull request comment is sticky under the name `coverage`, deliberately
-distinct from projected-releases.yml's `projected-releases` header. Both
+distinct from the `projected-releases` header the action itself posts. Both
 comments live on the same pull request under the same bot identity, so a
 sticky comment that matched on "my newest comment" rather than on its own
 hidden marker would edit the other one. That is what `src/comment.ts` is
@@ -499,8 +475,9 @@ one fact.
 this repository's own `release-please.yml`: `action.test.ts`, `main.test.ts`
 and `bundle.test.ts` therefore pass `release-workflow: off` in their shared
 fixtures and cover the comparison against a checkout written for it. That is
-not tidiness. `test.yml`'s `paths:` allow-list names two workflow files and not
-`.github/workflows`, so most changes to a workflow do not run the suite.
+not tidiness. The `test` filter in `ci.yml` names its own workflow and the
+release workflows individually rather than watching `.github/workflows`,
+because most workflow changes do not affect the suite.
 
 **Those fixtures point `repo-root` at an empty directory for the same reason.**
 The checkout carries a `release-please-config.json` of its own since this

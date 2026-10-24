@@ -1,8 +1,8 @@
 # The ordinary arrangement: one job, one step.
 #
-# Copy this to .github/workflows/projected-releases.yml in a repository that
+# Copy this to .github/workflows/release-projection.yml in a repository that
 # release-please releases, and adjust the pin.
-name: Projected releases
+name: Release Projection
 
 on:
   pull_request:

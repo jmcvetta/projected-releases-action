@@ -1,8 +1,8 @@
 # The rendering half of the fork-safe arrangement. See
 # examples/fork-safe-comment.yml for the other half and the reasoning.
 #
-# Copy to .github/workflows/projected-releases.yml.
-name: Projected releases
+# Copy to .github/workflows/release-projection.yml.
+name: Release Projection
 
 on:
   pull_request:

@@ -1,0 +1,224 @@
+# Run every check for this pull request in one required context. The filters
+# select steps, not the workflow, so Checks always reports even when no path
+# matches.
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Select checks
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            test:
+              - 'src/**'
+              - 'dist/**'
+              - 'scripts/bundle.mjs'
+              - 'action.yml'
+              - 'conventional-types.json'
+              - 'release-please-config.json'
+              - '.release-please-manifest.json'
+              - '.github/workflows/release-please.yml'
+              - '.github/workflows/release-projection.yml'
+              - '.github/workflows/ci.yml'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.json'
+              - 'tsconfig.test.json'
+              - 'vitest.config.ts'
+            infra:
+              - 'infra/**'
+              - 'package.json'
+            git_sync:
+              - 'Makefile'
+              - '.config/wt.toml'
+              - 'scripts/check-git-sync.py'
+              - '.github/workflows/ci.yml'
+
+      - uses: actions/checkout@v7
+        id: checkout
+        if: >-
+          !cancelled() &&
+          (steps.filter.outputs.test == 'true' ||
+          steps.filter.outputs.infra == 'true' ||
+          steps.filter.outputs.git_sync == 'true')
+
+      # Workflow syntax is part of the test-filter inputs, so lint it whenever
+      # a test input changes.
+      - name: Lint workflows
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.checkout.outcome == 'success'
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+      - uses: actions/setup-node@v7
+        id: setup-node
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.checkout.outcome == 'success'
+        with:
+          node-version: 24
+          cache: npm
+
+      # `--no-audit` avoids an unenforced audit round trip; dependabot.yml
+      # opens pull requests for dependency updates.
+      - name: Install npm dependencies
+        id: npm-ci
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.setup-node.outcome == 'success'
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        id: typecheck
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.npm-ci.outcome == 'success'
+        run: npm run typecheck
+
+      # The bundle test runs dist/index.mjs in a subprocess, so rebuild before
+      # testing to exercise this pull request's source.
+      - name: Rebuild the bundle
+        id: build
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.npm-ci.outcome == 'success'
+        run: npm run build
+
+      - name: Bundle staleness check
+        id: bundle-staleness
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.checkout.outcome == 'success'
+        run: |
+          if ! git diff --quiet -- dist; then
+            echo "::error::dist/index.mjs is stale. Run \`npm run build\` and commit it." >&2
+            git diff --stat -- dist >&2
+            exit 1
+          fi
+
+      - name: Test
+        id: test
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.npm-ci.outcome == 'success' &&
+          steps.build.outcome == 'success'
+        run: npm test
+        env:
+          VITEST_COVER: --coverage
+
+      - name: Coverage comment
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.test.outcome == 'success' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          name: coverage
+
+      # Isolate the environment so runner-provided GitHub variables do not
+      # change which input error proves that the complete bundle loaded.
+      - name: Prove the bundle loads
+        id: bundle-load
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.test == 'true' &&
+          steps.build.outcome == 'success'
+        run: |
+          set +e
+          output=$(env -i PATH="$PATH" node dist/index.mjs 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          if [[ $status -eq 0 ]]; then
+            echo "::error::the bundle should have failed on a missing repository" >&2
+            exit 1
+          fi
+          if grep -qE "Dynamic require of|ERR_MODULE_NOT_FOUND|Cannot find package" <<<"$output"; then
+            echo "::error::the bundle did not load: see the message above" >&2
+            exit 1
+          fi
+          if ! grep -q "could not determine the repository" <<<"$output"; then
+            echo "::error::the bundle did not reach its own input checks" >&2
+            exit 1
+          fi
+
+      - name: Install OpenTofu
+        id: setup-tofu
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.infra == 'true' &&
+          steps.checkout.outcome == 'success'
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version_file: infra/github/.opentofu-version
+          tofu_wrapper: false
+
+      - name: Validate infrastructure
+        id: check-infra
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.infra == 'true' &&
+          steps.setup-tofu.outcome == 'success'
+        run: npm run check:infra
+
+      - name: Lockfile staleness check
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.infra == 'true' &&
+          steps.checkout.outcome == 'success' &&
+          steps.setup-tofu.outcome == 'success'
+        run: |
+          if ! git diff --quiet -- infra/github/.terraform.lock.hcl; then
+            echo "::error::infra/github/.terraform.lock.hcl is stale. See the diff below." >&2
+            git diff -- infra/github/.terraform.lock.hcl >&2
+            exit 1
+          fi
+
+      - name: Install Worktrunk
+        id: setup-worktrunk
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.git_sync == 'true' &&
+          steps.checkout.outcome == 'success'
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/worktrunk-installer.sh"
+          curl --fail --location --retry 5 --retry-delay 2 --retry-all-errors \
+            --output "$installer" \
+            https://github.com/max-sixty/worktrunk/releases/download/v0.80.0/worktrunk-installer.sh
+          echo '53b606fa48b84169180f8881a61f5c31c770645e1d51328032aa5aeb4f2e155a  '"$installer" | sha256sum --check -
+          WORKTRUNK_UNMANAGED_INSTALL="$RUNNER_TEMP/worktrunk/bin" sh "$installer"
+          echo "$RUNNER_TEMP/worktrunk/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/worktrunk/bin/wt" --version
+
+      - name: Test sync behavior
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.git_sync == 'true' &&
+          steps.setup-worktrunk.outcome == 'success'
+        run: make check-git-sync

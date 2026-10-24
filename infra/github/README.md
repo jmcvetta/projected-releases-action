@@ -72,11 +72,11 @@ npm run check:infra
 It runs `tofu fmt -check`, then `tofu init -backend=false`, then
 `tofu validate`. The `-backend=false` is what keeps it credential-free:
 providers are installed for validation, and neither state nor the GitHub API is
-touched. `.github/workflows/infra.yml` runs it on every pull request that
-touches this directory, so a syntax error or an attribute the provider does not
-have fails in review. It is its own workflow so that GitHub's `paths:` filter
-can gate it: a pull request that changes only `src/` should not be paying for a
-toolchain download and a provider fetch.
+touched. The `infra` filter in `.github/workflows/ci.yml` selects its setup,
+validation and lockfile steps for changes to this directory or `package.json`.
+The `Checks` job always reports; the filter gates only its steps, so unrelated
+pull requests still receive the required context without downloading the
+toolchain or provider.
 
 It is not part of `npm run check`, which is the typecheck-build-test chain a
 laptop runs constantly and which must not start requiring OpenTofu to be
@@ -135,20 +135,15 @@ exception for the one resource.
 
 ## What is not managed here, and why
 
-- **`test` as a required check.** `validate-title` is required (see below);
-  `test` is not, and the reason is `test.yml`'s `paths:` filter. A
-  path-filtered workflow reports no check run at all rather than a skipped
-  one, so a required `test` would leave every pull request that matches
-  nothing in its allow-list pending for ever, fixable only by someone
-  hand-applying this stack. Requiring it means dropping the filter in the
-  same commit, and nothing enforces that.
+- **A separate infrastructure check.** The `Checks` context is required
+  alongside `Release Projection`. Its `infra` path filter selects the
+  OpenTofu steps inside `ci.yml`; it does not suppress the required job on
+  other pull requests. The `Release Projection` job runs the title gate and
+  projection, with only the projection skipped on release-please branches.
 
   Once installed and configured, the release App opens its pull request with a
-  distinct identity, so GitHub runs its checks without an approval click.
-
-  `preview` stays out of it whatever happens. That job is advisory by design
-  and skips itself on release-please's own branches, so as a required check it
-  would never report there either.
+  distinct identity, so GitHub runs both required checks without an approval
+  click.
 
 - **The release App.** `RELEASE_BOT_APP_ID` is managed here as the non-secret
   ID `4861873`. Install that App on this repository, then set its private key
