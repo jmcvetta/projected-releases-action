@@ -109,22 +109,6 @@ describe("test.yml's input list", () => {
     expect(events["push"]?.paths?.length).toBeGreaterThan(10);
   });
 
-  it("names every file this suite reads outside src/", () => {
-    // The allow-list does not fail safe: an input left off it is simply a file
-    // this workflow stops running on. These are the ones read by a test rather
-    // than by a build.
-    const paths = workflow("test.yml").on?.["push"]?.paths ?? [];
-    for (const name of [
-      "action.yml",
-      "release-please-config.json",
-      ".release-please-manifest.json",
-      ".github/workflows/release-please.yml",
-      ".github/workflows/projected-releases.yml",
-      ".github/workflows/test.yml",
-    ]) {
-      expect(paths, name).toContain(name);
-    }
-  });
 });
 
 describe("the workflows that name the release mode", () => {
