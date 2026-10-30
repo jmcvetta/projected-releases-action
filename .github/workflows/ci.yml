@@ -43,6 +43,7 @@ jobs:
             infra:
               - 'infra/**'
               - 'package.json'
+              - '.checkov.yaml'
             git_sync:
               - 'Makefile'
               - '.config/wt.toml'
@@ -185,6 +186,29 @@ jobs:
           steps.filter.outputs.infra == 'true' &&
           steps.setup-tofu.outcome == 'success'
         run: npm run check:infra
+
+      - name: Install uv
+        id: setup-uv
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.infra == 'true' &&
+          steps.checkout.outcome == 'success'
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Checkov
+        id: setup-checkov
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.infra == 'true' &&
+          steps.setup-uv.outcome == 'success'
+        run: uv tool install checkov==3.2.472
+
+      - name: Scan infrastructure policy
+        if: >-
+          !cancelled() &&
+          steps.filter.outputs.infra == 'true' &&
+          steps.setup-checkov.outcome == 'success'
+        run: checkov --config-file .checkov.yaml
 
       - name: Lockfile staleness check
         if: >-
