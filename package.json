@@ -1,6 +1,6 @@
 {
   "name": "projected-releases-action",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Say on a pull request which release-please tags merging it will cut.",
   "type": "module",
   "engines": {
