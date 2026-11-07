@@ -24,10 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: jmcvetta/projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@86ce18846efa46f08eb621516adb1a98e85ae2df # v0.7.1
         with:
           mode: render
       # The rendered body, and nothing else. Which pull request it belongs to
@@ -35,7 +35,7 @@ jobs:
       # file as the pull request writes it, so anything this job uploads is
       # the head's to choose, and the posting job resolves the number from the
       # API instead. See examples/fork-safe-comment.yml.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: projected-releases
           path: projected-releases.md

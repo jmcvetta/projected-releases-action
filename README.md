@@ -64,10 +64,10 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.event.pull_request.head.ref, 'release-please--') }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: jmcvetta/projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@86ce18846efa46f08eb621516adb1a98e85ae2df # v0.7.1
 ```
 
 That is all a repository with `release-please-config.json` and
@@ -95,7 +95,7 @@ If your release workflow configures release-please with inputs instead of
 those files, pass this action the same values:
 
 ```yaml
-      - uses: jmcvetta/projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@86ce18846efa46f08eb621516adb1a98e85ae2df # v0.7.1
         with:
           release-type: node
 ```
@@ -110,7 +110,7 @@ The projection follows your repository's merge settings, and assumes a
 squash-merge wherever squash is allowed. To project a different merge:
 
 ```yaml
-      - uses: jmcvetta/projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@86ce18846efa46f08eb621516adb1a98e85ae2df # v0.7.1
         with:
           merge-method: merge   # or rebase
 ```
@@ -136,7 +136,7 @@ A later step reads them through `steps.<id>.outputs`:
 
 ```yaml
       - id: projected
-        uses: jmcvetta/projected-releases-action@v0
+        uses: jmcvetta/projected-releases-action@86ce18846efa46f08eb621516adb1a98e85ae2df # v0.7.1
       - if: steps.projected.outputs.malformed-title == 'true'
         run: exit 1
 ```
