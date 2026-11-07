@@ -75,13 +75,13 @@ jobs:
       # call that opens the pull request.
       - id: app-token
         if: vars.RELEASE_BOT_APP_ID != ''
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
 
       - id: release
-        uses: googleapis/release-please-action@v5
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           # No `release-type:`. Its presence is the mode switch, and this
           # repository is configured in the two files above.
@@ -91,7 +91,7 @@ jobs:
       # release for `uses: ...@v0` to mean anything. release-please writes
       # only the exact tag. The aliases below are computed from the release,
       # so this keeps working across the 1.0.0 that retires `v0`.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.release.outputs.release_created == 'true'
         with:
           fetch-depth: 0

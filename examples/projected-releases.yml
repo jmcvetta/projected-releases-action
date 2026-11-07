@@ -45,7 +45,7 @@ jobs:
       # from the merge base, and the file list of each commit release-please
       # walks is read locally rather than one API request at a time. A shallow
       # clone has neither, and the action falls back to the API for both.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: jmcvetta/projected-releases-action@v0
+      - uses: jmcvetta/projected-releases-action@86ce18846efa46f08eb621516adb1a98e85ae2df # v0.7.1
