@@ -308,9 +308,10 @@ OpenTofu on a laptop.
 
 **The checks run from `ci.yml`, and path filters select steps rather than
 workflows.** `dorny/paths-filter` computes separate test, infrastructure and
-git-sync selections. The infrastructure filter names `infra/**`, `package.json`
-and `.checkov.yaml`, because `tofu validate` reads the first, the package
-manifest holds the `check:infra` command line, and Checkov reads the last.
+git-sync selections. The infrastructure filter names `infra/**`, `package.json`,
+`.checkov.yaml` and `ci.yml`: `tofu validate` reads the first, the package
+manifest holds the `check:infra` command line, Checkov reads the third, and the
+workflow declares the setup actions and install commands the leg exercises.
 Setup-opentofu and the provider fetch run only when that filter matches. The
 same leg also runs Checkov over `infra/` with `.checkov.yaml`, whose skips each
 carry a reason.
