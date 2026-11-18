@@ -24,7 +24,7 @@ __git_sync_run:
 		wt=$$(git worktree list --porcelain | awk -v b="$$b" '/^worktree /{p = substr($$0, 10)} /^branch /{if (substr($$0, 8) == "refs/heads/" b) {print p; exit}}'); \
 		if [ -n "$$wt" ]; then \
 			if ! wt remove --foreground "$$wt"; then \
-				printf 'WARN: worktree for gone-upstream branch %s could not be removed; kept: %s\n' "$$b" "$$wt" >&2; \
+				printf 'WARN: worktree for branch %s could not be removed; kept: %s\n' "$$b" "$$wt" >&2; \
 				continue; \
 			fi; \
 			printf 'removed stale worktree: %s\n' "$$wt"; \
