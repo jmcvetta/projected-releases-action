@@ -60,14 +60,15 @@ class SyncTest(unittest.TestCase):
         command = 'set -e; eval "$(command wt config shell init bash)"; wt -y sync; pwd'
         return run(self.caller, "bash", "--noprofile", "--norc", "-c", command, env=self.env)
 
-    def test_linked_caller_returns_to_master_and_removes_stale_branch(self) -> None:
-        """A child-process checkout can clean a branch but cannot change the calling shell."""
+    def test_linked_caller_returns_to_master_and_removes_merged_worktrees(self) -> None:
+        """Shell integration leaves the caller in master before merged worktrees are removed."""
         result = self.sync()
         self.assertEqual(result.stdout.splitlines()[-1], str(self.primary))
         self.assertIn(f"removed stale worktree: {self.stale}", result.stdout)
         self.assertFalse(self.stale.exists())
         self.assertNotIn("stale", run(self.primary, "git", "branch", "--list", "stale").stdout)
-        self.assertTrue(self.caller.exists())
+        self.assertFalse(self.caller.exists())
+        self.assertNotIn("caller", run(self.primary, "git", "branch", "--list", "caller").stdout)
 
     def test_unintegrated_branch_keeps_changes_after_worktree_removal(self) -> None:
         """A gone upstream alone must not force-delete unpublished commits."""
@@ -86,6 +87,30 @@ class SyncTest(unittest.TestCase):
         run(self.primary, "git", "push", "origin", "--delete", "direct")
         self.sync()
         self.assertNotIn("direct", run(self.primary, "git", "branch", "--list", "direct").stdout)
+
+    def test_merged_direct_branch_with_upstream_is_removed(self) -> None:
+        """An existing remote must not keep a merged local branch alive."""
+        run(self.primary, "git", "branch", "direct", "master")
+        run(self.primary, "git", "push", "-u", "origin", "direct")
+        self.sync()
+        self.assertNotIn("direct", run(self.primary, "git", "branch", "--list", "direct").stdout)
+
+    def test_merged_linked_branch_with_upstream_is_removed(self) -> None:
+        """Merged cleanup must include linked worktrees whose upstreams still exist."""
+        run(self.primary, "git", "push", "origin", "stale")
+        self.sync()
+        self.assertFalse(self.stale.exists())
+        self.assertNotIn("stale", run(self.primary, "git", "branch", "--list", "stale").stdout)
+
+    def test_unmerged_branch_with_upstream_is_kept(self) -> None:
+        """Merged cleanup must not remove a worktree that still adds commits."""
+        (self.stale / "new.txt").write_text("unpublished\n", encoding="utf-8")
+        run(self.stale, "git", "add", "new.txt")
+        run(self.stale, "git", "commit", "-m", "unpublished change")
+        run(self.stale, "git", "push", "-u", "origin", "stale")
+        self.sync()
+        self.assertTrue(self.stale.exists())
+        self.assertIn("stale", run(self.primary, "git", "branch", "--list", "stale").stdout)
 
     def test_dirty_stale_worktree_is_kept(self) -> None:
         """Cleanup must not delete user files or the branch that owns them."""
