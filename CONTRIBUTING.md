@@ -21,6 +21,7 @@ wt config shell install
 ```
 
 From a linked worktree, run `wt sync`. It switches the calling shell to the
-master worktree, pulls and prunes remote references, then offers gone-upstream
-branches to Worktrunk for safe cleanup. Worktrunk keeps worktrees that are
-dirty, locked, or whose branches still contain unpublished changes.
+master worktree, pulls and prunes remote references, then lets Worktrunk
+remove the branches and worktrees it finds integrated into master, including
+squash-merged ones. Worktrunk keeps the main worktree and every worktree that
+is dirty, locked, or whose branch still contains unpublished changes.

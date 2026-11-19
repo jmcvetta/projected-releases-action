@@ -9,29 +9,22 @@ SHELL := /bin/bash
 
 .PHONY: __git_sync_run check-git-sync
 
-# __git_sync_run: implementation for `wt sync`, which first switches the caller
-# to master's worktree. Offer gone-upstream and merged branches to Worktrunk for
-# cleanup. Worktrunk decides whether each branch is integrated; it refuses dirty
-# or locked worktrees and keeps branches that still add changes.
+# __git_sync_run: implementation for the `wt sync` alias, which switches to
+# master's worktree before invoking this target. Pull the remote, prune
+# references, then let Worktrunk remove every branch and worktree it finds
+# integrated into master, including squash-merged ones. Dirty or locked
+# worktrees remain untouched.
 __git_sync_run:
 	git pull
 	git fetch --prune
-	@{ \
-		git branch -vv | awk '/: gone\]/ {sub(/^\+ /, ""); print $$1}'; \
-		git branch --merged master --format='%(refname:short)'; \
-	} | awk '$$0 != "master" && !seen[$$0]++' | \
-	while read -r b; do \
-		wt=$$(git worktree list --porcelain | awk -v b="$$b" '/^worktree /{p = substr($$0, 10)} /^branch /{if (substr($$0, 8) == "refs/heads/" b) {print p; exit}}'); \
-		if [ -n "$$wt" ]; then \
-			if ! wt remove --foreground "$$wt"; then \
-				printf 'WARN: worktree for branch %s could not be removed; kept: %s\n' "$$b" "$$wt" >&2; \
-				continue; \
-			fi; \
-			printf 'removed stale worktree: %s\n' "$$wt"; \
-		else \
-			wt remove --foreground "$$b"; \
-		fi; \
-	done
+	@remote=$$(git config --get branch.master.remote); \
+	if [ -z "$$remote" ]; then \
+		printf 'WARN: master has no remote; skipping branch cleanup\n' >&2; \
+		exit 0; \
+	fi; \
+	if ! wt step prune --foreground --min-age 0; then \
+		printf 'WARN: worktree cleanup failed\n' >&2; \
+	fi
 
 check-git-sync:
 	python3 scripts/check-git-sync.py
